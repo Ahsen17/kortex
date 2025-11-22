@@ -6,10 +6,11 @@ from openai import AsyncOpenAI
 from ..base import BaseSchema
 from ..config import get_config
 
-config = get_config()
-
+__all__ = ("Embedder",)
 
 OPENAI_OP_TIMEOUT: Final[float] = 30.0
+
+config = get_config()
 
 
 class Embedder(BaseSchema):

@@ -5,6 +5,8 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from ..base import BaseSchema
 from ..base.abc import PathOrStr
 
+__all__ = ("Jinja2Encoder",)
+
 
 class Jinja2Encoder[T: BaseSchema]:
     """Encoder for Jinja2 templates."""

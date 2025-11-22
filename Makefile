@@ -183,7 +183,7 @@ test:  					## Run the tests
 test-all: test					## Run all tests
 
 .PHONY: fix
-fix:
+fix: 					## Run ruff to auto-fix issues
 	@echo "${INFO} Running ruff to auto-fix issues... 🛠️"
 	@if uv run ruff check src tests --fix; then \
 		echo "${OK} Ruff auto-fix completed ✨"; \

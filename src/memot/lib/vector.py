@@ -8,6 +8,11 @@ from qdrant_client.http import models as qdrant_models
 from ..base import AuditMixin, BaseSchema
 from .embed import Embedder
 
+__all__ = (
+    "VectorCollection",
+    "VectorStoreMixin",
+)
+
 QDRANT_OP_TIMEOUT: Final[int] = 30
 
 

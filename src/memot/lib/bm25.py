@@ -13,6 +13,11 @@ from fastembed.common.utils import iter_batch
 from fastembed.parallel_processor import ParallelWorkerPool
 from fastembed.sparse.bm25 import Bm25, Bm25Worker
 
+__all__ = (
+    "Bm25Chinese",
+    "mrl_embeddings",
+)
+
 
 class Bm25Chinese(Bm25):
     """BM25 model for Chinese."""

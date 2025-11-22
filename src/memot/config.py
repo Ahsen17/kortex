@@ -1,4 +1,5 @@
 import functools
+import os
 from pathlib import Path
 from typing import Final, Self
 
@@ -6,24 +7,32 @@ from msgspec import field, toml, yaml
 
 from .base import BaseSchema
 
+__all__ = (
+    "BASE_DIR",
+    "ApplicationConfig",
+    "OpenAIProviderConfig",
+    "ServerConfig",
+    "get_config",
+)
+
 BASE_DIR: Final[Path] = Path.cwd()
 
 
 class ServerConfig(BaseSchema):
     """Configuration for the MemoT server."""
 
-    host: str = "127.0.0.1"
-    port: int = 8000
-    debug: bool = True
-    reload: bool = False
+    host: str = field(default="127.0.0.1")
+    port: int = field(default=8000)
+    debug: bool = field(default=True)
+    reload: bool = field(default=True)
 
 
 class OpenAIProviderConfig(BaseSchema):
     """Configuration for AI API."""
 
-    provider: str = ""
-    base_url: str = ""
-    api_key: str = ""
+    provider: str = field(default="")
+    base_url: str = field(default="")
+    api_key: str = field(default=os.getenv("OPENAI_API_KEY", ""))
 
 
 class ApplicationConfig(BaseSchema):
