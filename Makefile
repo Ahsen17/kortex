@@ -34,7 +34,7 @@ sync:					## Sync dependencies
 .PHONY: install
 install: destroy clean				## Install dependencies
 	@echo "${INFO} Starting fresh installation..."
-	@if uv venv -p 3.10; then \
+	@if uv venv -p 3.12; then \
 		echo "${OK} Virtual environment created ✨"; \
 	else \
 		echo "${ERROR} Failed to create virtual environment ❌" >&2; \
@@ -182,11 +182,21 @@ test:  					## Run the tests
 .PHONY: test-all
 test-all: test					## Run all tests
 
+.PHONY: fix
+fix:
+	@echo "${INFO} Running ruff to auto-fix issues... 🛠️"
+	@if uv run ruff check src tests --fix; then \
+		echo "${OK} Ruff auto-fix completed ✨"; \
+	else \
+		echo "${ERROR} Ruff auto-fix encountered issues ❌" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: check
-check: lint test-all				## Run all linting and tests
+check: fix lint test-all				## Run all linting and tests
 
 .PHONY: check-all
-check-all: lint test-all coverage			## Run all linting, tests, and coverage checks
+check-all: fix lint test-all coverage			## Run all linting, tests, and coverage checks
 
 # =============================================================================
 # Docs

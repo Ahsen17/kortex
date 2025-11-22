@@ -1,13 +1,27 @@
 [project]
+authors = [{ name = "Ahsen17", email = "ahsenedward@qq.com" }]
 name = "memot"
 version = "0.1.0"
 description = "An experimental memory agent."
 readme = "README.md"
-authors = [
-    { name = "Ahsen17", email = "ahsenedward@qq.com" }
-]
+
 requires-python = ">=3.12"
 dependencies = [
+  "agno>=2.3.2",
+  "aiofiles>=25.1.0",
+  "asyncpg>=0.30.0",
+  "dotenv>=0.9.9",
+  "fastapi>=0.121.3",
+  "fastembed>=0.7.3",
+  "jieba>=0.42.1",
+  "jinja2>=3.1.6",
+  "msgspec>=0.19.0",
+  "openai>=2.8.1",
+  "psycopg2-binary>=2.9.11",
+  "qdrant-client>=1.16.0",
+  "returns>=0.26.0",
+  "ruff>=0.14.4",
+  "scikit-learn>=1.7.2",
 ]
 
 
@@ -29,20 +43,8 @@ docs = [
   "sphinxext-opengraph",
   "sphinx-tippy",
 ]
-linting = [
-  "mypy[faster-cache]",
-  "pre-commit",
-  "pyright",
-  "ruff",
-  "slotscheck",
-]
-test = [
-  "coverage",
-  "pytest",
-  "pytest-cov",
-  "pytest-mock",
-  "pytest-xdist",
-]
+linting = ["mypy[faster-cache]", "pre-commit", "pyright", "ruff", "slotscheck"]
+test = ["coverage", "pytest", "pytest-cov", "pytest-mock", "pytest-xdist"]
 
 [tool.uv]
 default-groups = "all"
@@ -50,7 +52,7 @@ default-groups = "all"
 [tool.ruff]
 src = ["src", "tests"]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 extend-select = [
@@ -94,6 +96,8 @@ extend-select = [
 ignore = [
   "A003",    # flake8-builtins - class attribute {name} is shadowing a python builtin
   "B010",    # flake8-bugbear - do not call setattr with a constant attribute value
+  "EXE002",  # flake8-executable - missing shebang in executable file
+  "TID252",  # flake8-tidy-imports - imports are not sorted
   "D100",    # pydocstyle - missing docstring in public module
   "D101",    # pydocstyle - missing docstring in public class
   "D102",    # pydocstyle - missing docstring in public method
@@ -177,12 +181,8 @@ show_error_codes = true
 pretty = true
 
 [tool.pytest.ini_options]
-addopts = [
-  "--import-mode=importlib",
-]
-filterwarnings = [
-  "ignore::DeprecationWarning",
-]
+addopts = ["--import-mode=importlib"]
+filterwarnings = ["ignore::DeprecationWarning"]
 testpaths = ["tests"]
 
 [tool.coverage.report]
@@ -204,11 +204,7 @@ show_missing = true
 [tool.coverage.run]
 branch = true
 concurrency = ["multiprocessing", "thread"]
-omit = [
-  "*/tests/*",
-  "__init__.py",
-  "__main__.py",
-]
+omit = ["*/tests/*", "__init__.py", "__main__.py"]
 parallel = true
 source = ["src"]
 
