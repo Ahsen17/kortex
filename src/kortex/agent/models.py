@@ -6,6 +6,8 @@ from httpx import URL
 
 from ..config import OpenAIProviderConfig
 
+__all__ = ("AgentChat",)
+
 
 @dataclass
 class AgentChat(OpenAILike):

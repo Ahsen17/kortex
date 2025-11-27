@@ -34,10 +34,28 @@ class VectorStoreMixin(AuditMixin, kw_only=True, metaclass=ABCMeta):
     content: str
 
     @abstractmethod
-    def to_payload(self) -> dict[str, Any]:
-        """Convert the instance to a payload dictionary for vector store."""
+    def to_payload(
+        self,
+        include: set[str] | None = None,
+        exclude: set[str] | None = None,
+        exclude_none: bool = True,
+    ) -> dict[str, Any]:
+        """Convert the instance to a payload dictionary for vector store.
 
-        raise NotImplementedError()
+        Args:
+            include(`set[str]`): Fields to include in the payload.
+            exclude(`set[str]`): Fields to exclude from the payload.
+            exclude_none(`bool`): Whether to exclude fields with `None` value, defaults to `True`.
+
+        Returns:
+            Payload dictionary.
+        """
+
+        return self.to_dict(
+            include=include,
+            exclude=exclude,
+            exclude_none=exclude_none,
+        )
 
     @classmethod
     @abstractmethod

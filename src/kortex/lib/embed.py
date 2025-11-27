@@ -1,51 +1,49 @@
-import functools
-from typing import Final
+from typing import Final, Literal
 
 from openai import AsyncOpenAI
 
 from ..base import BaseSchema
-from ..config import get_config
+from ..config import OpenAIProviderConfig
 
 __all__ = ("Embedder",)
 
 OPENAI_OP_TIMEOUT: Final[float] = 30.0
 
-config = get_config()
-
 
 class Embedder(BaseSchema):
     """Embedder for text content."""
 
-    provider: str
     model: str
+    provider: OpenAIProviderConfig
 
-    @functools.cached_property
-    def client(self) -> AsyncOpenAI:
+    dimensions: int = 1024
+    encoding_format: Literal["float", "base64"] = "float"
+
+    async_client: AsyncOpenAI | None = None
+
+    @property
+    def aclient(self) -> AsyncOpenAI:
         """Create an OpenAI client."""
 
-        openai_provider = config.get_provider(self.provider)
+        if self.async_client:
+            return self.async_client
 
-        if openai_provider is None:
-            raise ValueError(f"OpenAI provider `{self.provider}` not found")
-
-        return AsyncOpenAI(
-            base_url=openai_provider.base_url,
-            api_key=openai_provider.api_key,
+        self.async_client = AsyncOpenAI(
+            base_url=self.provider.base_url,
+            api_key=self.provider.api_key,
             max_retries=1,
             timeout=OPENAI_OP_TIMEOUT,
         )
 
-    async def embed(
-        self,
-        content: str | list[str],
-        dimensions: int = 1024,
-    ) -> list[list[float]]:
+        return self.async_client
+
+    async def embed(self, content: str | list[str]) -> list[list[float]]:
         """Embed text content using OpenAI's embedding model."""
 
-        response = await self.client.embeddings.create(
+        response = await self.aclient.embeddings.create(
             input=content,
             model=self.model,
-            dimensions=dimensions,
+            dimensions=self.dimensions,
             timeout=OPENAI_OP_TIMEOUT,
         )
 

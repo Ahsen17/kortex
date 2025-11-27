@@ -8,6 +8,8 @@ from aiofiles.threadpool.text import AsyncTextIOWrapper
 from ..base import BaseSchema
 from ..base.abc import PathOrStr
 
+__all__ = ("FileReader",)
+
 
 class FileReader(BaseSchema):
     """Schema for file paths."""

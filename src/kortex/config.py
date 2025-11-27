@@ -12,7 +12,6 @@ __all__ = (
     "ApplicationConfig",
     "OpenAIProviderConfig",
     "ServerConfig",
-    "get_config",
 )
 
 BASE_DIR: Final[Path] = Path.cwd()
@@ -32,7 +31,7 @@ class OpenAIProviderConfig(BaseSchema):
 
     provider: str = field(default="")
     base_url: str = field(default="")
-    api_key: str = field(default=os.getenv("OPENAI_API_KEY", ""))
+    api_key: str = field(default=os.getenv("OPENAI_API_KEY", "not-provided"))
 
 
 class ApplicationConfig(BaseSchema):
@@ -69,8 +68,9 @@ class ApplicationConfig(BaseSchema):
 
         return None
 
+    @functools.lru_cache(maxsize=1, typed=True)
+    @classmethod
+    def get_config(cls, filename: str | None = None) -> Self:
+        """Get the application configuration."""
 
-@functools.lru_cache(maxsize=1, typed=True)
-def get_config(filename: str | None = None) -> ApplicationConfig:
-    """Get the application configuration."""
-    return ApplicationConfig.from_file(filename)
+        return cls.from_file()

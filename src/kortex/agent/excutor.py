@@ -11,6 +11,13 @@ from pydantic import BaseModel
 from ..base import BaseSchema
 from .models import AgentChat
 
+__all__ = (
+    "AgentExecutor",
+    "CallableExecutor",
+    "StandardWorkflow",
+    "TeamExecutor",
+)
+
 
 def _convert(output: Any, output_schema: BaseSchema) -> BaseSchema | None:
     """Convert the output to the output schema."""
@@ -71,7 +78,7 @@ class AgentExecutor(RoleExecutor, metaclass=ABCMeta):
     _tools: list[Toolkit] = []
 
     def add_tool(self, *tool: Toolkit) -> None:
-        """Add sequential tools to the agent."""
+        """Add tools to the agent."""
 
         self._tools.extend(tool)
 
@@ -86,6 +93,16 @@ class AgentExecutor(RoleExecutor, metaclass=ABCMeta):
             model=self.model,
             tools=self._tools,
             instructions=self.instructions,
+        )
+
+    def to_step(self) -> Step:
+        """Convert the executor to a workflow step."""
+
+        return Step(
+            step_id=self.id,
+            name=self.name,
+            description=self.description,
+            agent=self.to_agent(),
         )
 
     async def arun(
@@ -123,6 +140,16 @@ class TeamExecutor(RoleExecutor, metaclass=ABCMeta):
             description=self.description,
             instructions=self.instructions,
             members=self._members,
+        )
+
+    def to_step(self) -> Step:
+        """Convert the executor to a workflow step."""
+
+        return Step(
+            step_id=self.id,
+            name=self.name,
+            description=self.description,
+            team=self.to_team(),
         )
 
     async def arun(
@@ -181,20 +208,7 @@ class StandardWorkflow:
     def add_executor(self, *executor: Executor) -> None:
         """Add sequential executors to the workflow."""
 
-        targets_to_add = []
-
-        for _e in executor:
-            match _e:
-                case CallableExecutor():
-                    targets_to_add.append(_e.to_step())
-                case AgentExecutor():
-                    targets_to_add.append(_e.to_agent())
-                case TeamExecutor():
-                    targets_to_add.append(_e.to_team())
-                case _:
-                    raise ValueError(f"Unsupported executor type {type(_e)}.")
-
-        self._steps.extend(targets_to_add)
+        self._steps.extend([_e.to_step() for _e in executor])
 
     async def arun(
         self,
