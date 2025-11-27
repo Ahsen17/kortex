@@ -42,7 +42,16 @@ class ApplicationConfig(BaseSchema):
 
     @classmethod
     def from_file(cls, filename: str | None = None) -> Self:
-        """Load the configuration from a file."""
+        """Load the configuration from a file.
+
+        Args:
+            filename (`str`): The name of the configuration file, like "config.yaml".
+
+        Note:
+            Configuration filename suffix determines the format:
+            - `.yaml`: YAML format
+            - `.toml`: TOML format
+        """
 
         if filename is None:
             filename = "config.yaml"
@@ -50,9 +59,7 @@ class ApplicationConfig(BaseSchema):
         with (BASE_DIR / filename).open("r", encoding="utf-8") as f:
             configuration = f.read()
 
-            suffix = f.name.split(".")[-1]
-
-        match suffix:
+        match suffix := Path(filename).suffix:
             case "yaml":
                 return toml.decode(configuration, type=cls)
             case "toml":
@@ -73,4 +80,4 @@ class ApplicationConfig(BaseSchema):
     def get_config(cls, filename: str | None = None) -> Self:
         """Get the application configuration."""
 
-        return cls.from_file()
+        return cls.from_file(filename)

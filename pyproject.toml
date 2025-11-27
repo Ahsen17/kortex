@@ -20,12 +20,16 @@ dependencies = [
   "psycopg2-binary>=2.9.11",
   "qdrant-client>=1.16.0",
   "returns>=0.26.0",
+  "rich>=14.2.0",
   "ruff>=0.14.4",
   "scikit-learn>=1.7.2",
 ]
 
 
 [project.optional-dependencies]
+
+[project.scripts]
+kortex = "kortex.__init__:entrypoint"
 
 [build-system]
 requires = ["hatchling"]
