@@ -1,3 +1,6 @@
-from . import broker
+from . import broker, parrallel
 
-__all__ = ("broker",)
+__all__ = (
+    "broker",
+    "parrallel",
+)
