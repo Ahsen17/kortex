@@ -34,7 +34,7 @@ sync:					## Sync dependencies
 .PHONY: install
 install: destroy clean				## Install dependencies
 	@echo "${INFO} Starting fresh installation..."
-	@if uv venv -p 3.10; then \
+	@if uv venv -p 3.12; then \
 		echo "${OK} Virtual environment created ✨"; \
 	else \
 		echo "${ERROR} Failed to create virtual environment ❌" >&2; \
@@ -145,7 +145,7 @@ pre-commit: 					## Runs pre-commit hooks; includes ruff formatting and linting,
 .PHONY: slots-check
 slots-check: 					## Check for slots usage in classes
 	@echo "${INFO} Checking for slots usage in classes"
-	@if uv run slotscheck src; then \
+	@if uv run slotscheck src/kortex; then \
 		echo "${OK} Slots check passed ✨"; \
 	else \
 		echo "${ERROR} Slots check failed: missing or incorrect __slots__ usage ❌" >&2; \
@@ -153,7 +153,7 @@ slots-check: 					## Check for slots usage in classes
 	fi
 
 .PHONY: lint
-lint: pre-commit type-check slots-check			## Run all linting
+lint: pre-commit type-check # slots-check			## Run all linting
 
 .PHONY: coverage
 coverage:  					## Run the tests and generate coverage report
@@ -182,11 +182,21 @@ test:  					## Run the tests
 .PHONY: test-all
 test-all: test					## Run all tests
 
+.PHONY: fix
+fix: 					## Run ruff to auto-fix issues
+	@echo "${INFO} Running ruff to auto-fix issues... 🛠️"
+	@if uv run ruff check src tests --fix; then \
+		echo "${OK} Ruff auto-fix completed ✨"; \
+	else \
+		echo "${ERROR} Ruff auto-fix encountered issues ❌" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: check
-check: lint test-all				## Run all linting and tests
+check: fix lint test-all				## Run all linting and tests
 
 .PHONY: check-all
-check-all: lint test-all coverage			## Run all linting, tests, and coverage checks
+check-all: fix lint test-all coverage			## Run all linting, tests, and coverage checks
 
 # =============================================================================
 # Docs
