@@ -1,4 +1,4 @@
-from typing import Self
+from typing import Any, Self
 
 import anyio
 
@@ -48,5 +48,10 @@ class Semaphore:
         await self.acquire()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Exception,
+        exc_val: Any,
+        exc_tb: Any,
+    ) -> None:
         await self.release()

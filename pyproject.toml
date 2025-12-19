@@ -29,6 +29,7 @@ dependencies = [
     "rich-click>=1.9.4",
     "ruff>=0.14.9",
     "structlog>=25.5.0",
+    "valkey>=6.1.1",
 ]
 
 [project.scripts]
@@ -61,6 +62,7 @@ linting = [
 test = [
   "coverage",
   "pytest",
+  "pytest-asyncio",
   "pytest-cov",
   "pytest-mock",
   "pytest-xdist",
@@ -202,6 +204,7 @@ pretty = true
 [tool.pytest.ini_options]
 addopts = [
   "--import-mode=importlib",
+  "--asyncio-mode=auto",
 ]
 filterwarnings = [
   "ignore::DeprecationWarning",
