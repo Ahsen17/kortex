@@ -310,7 +310,7 @@ class ValkeyBroker(AsyncBroker[Any]):
                 "default",
                 receipt,
             )
-            return result > 0
+            return int(result) > 0
         except ValkeyError as e:
             raise QueueError(f"Failed to acknowledge message: {e}") from e
 
