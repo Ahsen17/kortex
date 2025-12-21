@@ -4,8 +4,8 @@ import typer
 from advanced_alchemy.alembic.commands import AlembicCommands
 from rich.console import Console
 
-from ..config import BASE_DIR
-from ..db.base import alchemy_config
+from kortex.config import BASE_DIR
+from kortex.db.base import alchemy_config
 
 console = Console()
 

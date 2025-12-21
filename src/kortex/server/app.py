@@ -5,7 +5,8 @@ from typing import Any
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 
-from ..config import AppConfig, ServerConfig
+from kortex.config import AppConfig, ServerConfig
+
 from ._version import __version__ as version
 
 __all__ = ("Application",)

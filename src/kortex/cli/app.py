@@ -7,8 +7,8 @@ try:
 except ImportError:  # pragma: no cover
     uvicorn = None  # type: ignore[assignment]
 
-from ..config import AppConfig
-from ..server.app import Application
+from kortex.config import AppConfig
+from kortex.server.app import Application
 
 app_click = typer.Typer(
     rich_markup_mode="rich",

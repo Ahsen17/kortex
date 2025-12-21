@@ -3,11 +3,13 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Self
 
+from advanced_alchemy.base import UUIDAuditBase
 from advanced_alchemy.config.asyncio import (
     AlembicAsyncConfig,
     AsyncSessionConfig,
 )
 from advanced_alchemy.extensions.fastapi.config import SQLAlchemyAsyncConfig
+from advanced_alchemy.mixins import SlugKey
 from advanced_alchemy.repository.typing import ModelT
 from advanced_alchemy.service import SQLAlchemyAsyncRepositoryReadService
 
@@ -15,7 +17,7 @@ if TYPE_CHECKING:
     from advanced_alchemy.repository import LoadSpec
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import AppConfig
+from kortex.config import AppConfig
 
 config = AppConfig.get_config()
 
@@ -56,3 +58,9 @@ class BaseService(SQLAlchemyAsyncRepositoryReadService[ModelT]):
             **kwargs,
         ) as service:
             yield service
+
+
+class AuditMixin(UUIDAuditBase, SlugKey):
+    """Example model."""
+
+    __abstract__ = True

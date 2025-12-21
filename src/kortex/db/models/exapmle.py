@@ -1,10 +1,10 @@
 import sqlalchemy as sa
-from advanced_alchemy.base import UUIDAuditBase
-from advanced_alchemy.mixins import SlugKey
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ..base import AuditMixin
 
-class Example(UUIDAuditBase, SlugKey):
+
+class Example(AuditMixin):
     """Example model."""
 
     __tablename__ = "example"

@@ -334,7 +334,7 @@ class ValkeyBroker(AsyncBroker[Any]):
                 group,
                 receipt,
             )
-            return result > 0
+            return bool(result > 0)
         except ValkeyError as e:
             raise QueueError(f"Failed to acknowledge message: {e}") from e
 
@@ -378,7 +378,7 @@ class ValkeyBroker(AsyncBroker[Any]):
                 "default",
                 receipt,
             )
-            return result > 0
+            return bool(result > 0)
         except ValkeyError as e:
             raise QueueError(f"Failed to nack message: {e}") from e
 
@@ -402,7 +402,7 @@ class ValkeyBroker(AsyncBroker[Any]):
             if length > 0:
                 await self._client.xtrim(queue, maxlen=0, approximate=True)
 
-            return length
+            return int(length)
         except ValkeyError as e:
             raise QueueError(f"Failed to purge queue: {e}") from e
 
