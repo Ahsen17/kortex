@@ -1,39 +1,15 @@
-"""Message models and lifecycle management.
-
-This module provides the core message structures for the broker,
-including message status tracking, delivery information, and batch operations.
-"""
-
-from __future__ import annotations
-
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
 from typing import Any
+
+from .enum import MessageStatus
 
 __all__ = (
     "DeliveryInfo",
     "Message",
     "MessageBatch",
-    "MessageStatus",
 )
-
-
-class MessageStatus(Enum):
-    """Message lifecycle status.
-
-    Tracks the complete lifecycle of a message from publication to final state.
-    """
-
-    PUBLISHED = "published"  # Message created and queued
-    QUEUED = "queued"  # Available for consumption
-    CONSUMED = "consumed"  # Retrieved by consumer
-    PROCESSING = "processing"  # Being processed by handler
-    ACKED = "acked"  # Successfully processed
-    NACKED = "nacked"  # Processing failed
-    DEAD_LETTER = "dead_letter"  # Moved to dead letter queue
-    EXPIRED = "expired"  # TTL expired
 
 
 @dataclass
@@ -107,7 +83,7 @@ class Message[T]:
     """
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    body: T = field(default=None)  # type: ignore
+    body: T | None = field(default=None)
     queue: str = field(default="")
     status: MessageStatus = field(default=MessageStatus.PUBLISHED)
     delivery_info: DeliveryInfo = field(default_factory=DeliveryInfo)
@@ -148,10 +124,7 @@ class Message[T]:
 
     def __repr__(self) -> str:
         """Detailed representation."""
-        return (
-            f"Message(id={self.id}, queue={self.queue}, "
-            f"status={self.status.value}, body={self.body!r})"
-        )
+        return f"Message(id={self.id}, queue={self.queue}, status={self.status.value}, body={self.body!r})"
 
 
 @dataclass

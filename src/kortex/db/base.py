@@ -17,7 +17,12 @@ if TYPE_CHECKING:
     from advanced_alchemy.repository import LoadSpec
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from kortex.config import AppConfig
+from ..config import AppConfig
+
+__all__ = (
+    "AuditMixin",
+    "BaseService",
+)
 
 config = AppConfig.get_config()
 
@@ -61,6 +66,6 @@ class BaseService(SQLAlchemyAsyncRepositoryReadService[ModelT]):
 
 
 class AuditMixin(UUIDAuditBase, SlugKey):
-    """Example model."""
+    """Audit mixin for db model."""
 
     __abstract__ = True

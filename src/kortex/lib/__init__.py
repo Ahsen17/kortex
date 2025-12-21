@@ -6,7 +6,6 @@ from . import (
     renderer,
     toolkit,
     vector,
-    worker,
 )
 
 __all__ = (
@@ -17,5 +16,4 @@ __all__ = (
     "renderer",
     "toolkit",
     "vector",
-    "worker",
 )
