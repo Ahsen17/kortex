@@ -5,32 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "ahsen17", email = "mesailedward@qq.com" }]
 requires-python = ">=3.12"
-dependencies = [
-    "advanced-alchemy>=1.8.2",
-    "agno>=2.3.12",
-    "aiosqlite>=0.22.0",
-    "argon2-cffi>=25.1.0",
-    "asyncpg>=0.31.0",
-    "dotenv>=0.9.9",
-    "fastapi[standard]>=0.124.4",
-    "fastembed>=0.7.4",
-    "jieba>=0.42.1",
-    "jinja2>=3.1.6",
-    "msgspec>=0.20.0",
-    "mypy>=1.19.0",
-    "openai>=2.11.0",
-    "plyvel>=1.5.1",
-    "postgres>=4.0",
-    "pytest>=9.0.2",
-    "python-dotenv>=1.2.1",
-    "qdrant-client>=1.16.2",
-    "returns>=0.26.0",
-    "rich>=14.2.0",
-    "rich-click>=1.9.4",
-    "ruff>=0.14.9",
-    "structlog>=25.5.0",
-    "valkey>=6.1.1",
-]
+dependencies = []
 
 [project.scripts]
 kortex = "kortex.__init__:entrypoint"
