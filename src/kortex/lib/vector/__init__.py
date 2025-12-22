@@ -1,5 +1,4 @@
-from .qdrant import VectorCollection as QdrantVectorCollection
-from .qdrant import VectorStoreMixin as QdrantVectorStoreMixin
+from .qdrant import QdrantVectorCollection, QdrantVectorStoreMixin
 
 __all__ = (
     "QdrantVectorCollection",
