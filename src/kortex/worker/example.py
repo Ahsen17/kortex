@@ -29,7 +29,6 @@ from kortex.worker.parallel import (
     ProcessConfig,
     ProcessManager,
     Scheduler,
-    TaskService,
     TaskStoreImpl,
     WorkerConfig,
     WorkerPool,
@@ -309,7 +308,7 @@ def fastapi_integration_example() -> FastAPI:
     # Create ParallelBroker for task management
     parallel_broker = ParallelBroker(
         underlying_broker=underlying_broker,
-        task_store=TaskStoreImpl(TaskService),
+        task_store=TaskStoreImpl(),
     )
 
     # Create lifespan function with bound parameters

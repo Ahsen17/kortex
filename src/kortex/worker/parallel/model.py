@@ -34,6 +34,11 @@ class TaskModel(AuditMixin):
         nullable=False,
         comment="Task queue",
     )
+    key: Mapped[str | None] = mapped_column(
+        sa.String(),
+        nullable=True,
+        comment="Task key for routing",
+    )
     status: Mapped[TaskStatus] = mapped_column(
         sa.String(),
         nullable=False,

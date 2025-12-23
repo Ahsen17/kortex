@@ -32,24 +32,28 @@ class TaskService(BaseService[TaskModel]):
     repository_type = TaskRepository
 
 
-class TaskStoreImpl[T: BaseService](TaskStore):
+class TaskStoreImpl(TaskStore):
     """Task storage implementation using database"""
 
-    def __init__(self, ser_cls: type[T]) -> None:
-        self.service_cls = ser_cls
-
     @asynccontextmanager
-    async def provide(self) -> AsyncGenerator[T]:
-        async with self.service_cls.session_scope() as service:
+    async def provide(self) -> AsyncGenerator[TaskService]:
+        async with TaskService.session_scope() as service:
             yield service
 
     async def save(self, message: TaskMessage) -> None:
         async with self.provide() as service:
-            await service.upsert(data=message.to_dict())
+            await service.create(
+                data=TaskModel(**message.to_dict()),
+                auto_commit=True,
+            )
 
     async def update(self, task_id: UUID, **kwargs: Any) -> None:
         async with self.provide() as service:
-            await service.update(data=kwargs, item_id=task_id)
+            await service.update(
+                data=kwargs,
+                item_id=task_id,
+                auto_commit=True,
+            )
 
     async def get(self, task_id: UUID) -> TaskMessage | None:
         async with self.provide() as service:
@@ -78,4 +82,7 @@ class TaskStoreImpl[T: BaseService](TaskStore):
 
     async def delete(self, task_id: UUID) -> None:
         async with self.provide() as service:
-            await service.delete(item_id=task_id)
+            await service.delete(
+                item_id=task_id,
+                auto_commit=True,
+            )

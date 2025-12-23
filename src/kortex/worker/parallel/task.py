@@ -11,7 +11,7 @@ from kortex.config import AppConfig
 from ..broker.plugin import AsyncValkeyBroker
 from .broker import ParallelBroker
 from .config import TaskConfig
-from .service import TaskService, TaskStoreImpl
+from .service import TaskStoreImpl
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -38,7 +38,7 @@ def default_parallel_broker() -> ParallelBroker:
             password=config.cache.password,
             db=config.cache.database,
         ),
-        task_store=TaskStoreImpl(TaskService),
+        task_store=TaskStoreImpl(),
     )
 
 

@@ -9,7 +9,6 @@ from advanced_alchemy.config.asyncio import (
     AsyncSessionConfig,
 )
 from advanced_alchemy.extensions.fastapi.config import SQLAlchemyAsyncConfig
-from advanced_alchemy.mixins import SlugKey
 from advanced_alchemy.repository.typing import ModelT
 from advanced_alchemy.service import SQLAlchemyAsyncRepositoryService
 from sqlalchemy.orm import declarative_mixin
@@ -67,7 +66,7 @@ class BaseService(SQLAlchemyAsyncRepositoryService[ModelT]):
 
 
 @declarative_mixin
-class AuditMixin(UUIDAuditBase, SlugKey):
+class AuditMixin(UUIDAuditBase):
     """Audit mixin for db model."""
 
     __abstract__ = True

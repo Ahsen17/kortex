@@ -9,6 +9,8 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -23,9 +25,11 @@ from .message import TaskMessage
 
 __all__ = ("Worker", "register_task")
 
-
 # Global task registry
 _task_registry: dict[str, Callable] = {}
+
+# Logger
+logger = structlog.stdlib.get_logger(__name__)
 
 
 def register_task(name: str, func: Callable) -> None:
@@ -110,8 +114,12 @@ class Worker:
                         self.queue,
                         timeout=self.config.queue_timeout,
                     )
-                except Exception:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001
                     # Log error and continue
+                    logger.error("Error consuming message from queue", error=e)
+
+                    # TODO: Cannot find oriented queue
+
                     await asyncio.sleep(1)
                     continue
 

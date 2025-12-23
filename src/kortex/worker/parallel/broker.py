@@ -31,7 +31,7 @@ class ParallelBroker:
 
     def __init__(
         self,
-        underlying_broker: AsyncBroker,
+        underlying_broker: AsyncBroker[TaskMessage],
         task_store: TaskStore,
         scheduler_config: SchedulerConfig | None = None,
     ):
@@ -114,19 +114,23 @@ class ParallelBroker:
         )
 
         # Save initial task state if store is available
+        message = TaskMessage(
+            queue=queue,
+            payload=payload,
+            task_id=task_id,
+            task_name=task_name,
+            status=TaskStatus.PENDING,
+            priority=kwargs.get("priority", 0),
+            max_retries=kwargs.get("retry", 3),
+            ttl=kwargs.get("ttl"),
+            timeout=kwargs.get("timeout"),
+        )
+
         if self._task_store:
-            message = TaskMessage(
-                queue=queue,
-                payload=payload,
-                task_id=task_id,
-                task_name=task_name,
-                status=TaskStatus.PENDING,
-                priority=kwargs.get("priority", 0),
-                max_retries=kwargs.get("retry", 3),
-                ttl=kwargs.get("ttl"),
-                timeout=kwargs.get("timeout"),
-            )
             await self._task_store.save(message)
+
+        # Produce a message
+        await self._broker.produce(queue, message)
 
         return task_id
 

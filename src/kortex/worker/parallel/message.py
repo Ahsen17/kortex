@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from msgspec import json
@@ -55,7 +55,6 @@ class TaskMessage:
 
     # Key for routing (optional)
     key: str | None = None
-    timestamp: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -65,13 +64,13 @@ class TaskMessage:
             "payload": self.payload,
             "id": self.task_id,
             "name": self.task_name,
-            "status": self.status.value,
+            "status": self.status,
             "retry_count": self.retry_count,
             "max_retries": self.max_retries,
             "created_at": self.created_at,
-            "scheduled_at": self.scheduled_at if self.scheduled_at else None,
-            "executed_at": self.executed_at if self.executed_at else None,
-            "completed_at": self.completed_at if self.completed_at else None,
+            "scheduled_at": self.scheduled_at,
+            "executed_at": self.executed_at,
+            "completed_at": self.completed_at,
             "result": self.result,
             "error": self.error,
             "worker_id": self.worker_id,
@@ -79,7 +78,6 @@ class TaskMessage:
             "ttl": self.ttl,
             "timeout": self.timeout,
             "key": self.key,
-            "timestamp": self.timestamp,
             "meta": self.metadata,
         }
 
@@ -95,8 +93,14 @@ class TaskMessage:
     def from_dict(cls, data: dict[str, Any]) -> TaskMessage:
         """Create from dictionary."""
         # Parse datetime fields
-        created_at = data.get("created_at")
-        created_at = datetime.fromisoformat(created_at) if created_at else datetime.now(UTC)
+        created_at: datetime = cast("datetime", data.get("created_at"))
+        created_at = (
+            datetime.fromisoformat(
+                created_at.isoformat(),
+            )
+            if created_at
+            else datetime.now(UTC)
+        )
 
         scheduled_at = data.get("scheduled_at")
         if scheduled_at:
@@ -129,7 +133,6 @@ class TaskMessage:
             ttl=data.get("ttl"),
             timeout=data.get("timeout"),
             key=data.get("key"),
-            timestamp=data.get("timestamp"),
             metadata=data.get("meta", {}),
         )
 

@@ -348,8 +348,7 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
         queue_name = self._get_queue_name(queue, key)
 
         # Check if queue exists
-        exists = await self._client.exists(queue_name)
-        if not exists:
+        if not await self._client.exists(queue_name):
             raise QueueNotFoundError(f"Queue '{queue_name}' does not exist")
 
         # Use BLPOP for blocking pop with timeout
