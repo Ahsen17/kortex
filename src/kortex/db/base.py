@@ -11,7 +11,8 @@ from advanced_alchemy.config.asyncio import (
 from advanced_alchemy.extensions.fastapi.config import SQLAlchemyAsyncConfig
 from advanced_alchemy.mixins import SlugKey
 from advanced_alchemy.repository.typing import ModelT
-from advanced_alchemy.service import SQLAlchemyAsyncRepositoryReadService
+from advanced_alchemy.service import SQLAlchemyAsyncRepositoryService
+from sqlalchemy.orm import declarative_mixin
 
 if TYPE_CHECKING:
     from advanced_alchemy.repository import LoadSpec
@@ -41,7 +42,7 @@ def alchemy_config() -> SQLAlchemyAsyncConfig:
     )
 
 
-class BaseService(SQLAlchemyAsyncRepositoryReadService[ModelT]):
+class BaseService(SQLAlchemyAsyncRepositoryService[ModelT]):
     """Base service."""
 
     @property
@@ -58,13 +59,14 @@ class BaseService(SQLAlchemyAsyncRepositoryReadService[ModelT]):
     ) -> AsyncGenerator[Self, None]:
         async with cls.new(
             session=session,
-            config=None,
+            config=alchemy_config(),
             load=load,
             **kwargs,
         ) as service:
             yield service
 
 
+@declarative_mixin
 class AuditMixin(UUIDAuditBase, SlugKey):
     """Audit mixin for db model."""
 

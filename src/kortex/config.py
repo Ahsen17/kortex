@@ -179,6 +179,15 @@ class DatabaseConfig(BaseStruct):
         return self._engine_instance
 
 
+class CacheConfig(BaseStruct):
+    """Cache configurations."""
+
+    host: str = field(default="127.0.0.1")
+    port: int = field(default=6379)
+    password: str | None = field(default=None)
+    database: int = field(default=0)
+
+
 class AppConfig(BaseStruct):
     """Application configurations."""
 
@@ -186,6 +195,7 @@ class AppConfig(BaseStruct):
 
     server: ServerConfig = field(default_factory=ServerConfig)
     db: DatabaseConfig = field(default_factory=DatabaseConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
     openai_providers: list[OpenaiProvider] = field(default=[])
 
     @classmethod
@@ -204,16 +214,19 @@ class AppConfig(BaseStruct):
         if filename is None:
             filename = "config.yaml"
 
-        with (ROOT_DIR / filename).open("r", encoding="utf-8") as f:
-            configuration = f.read()
+        if (config_file := ROOT_DIR / filename).exists():
+            with config_file.open("r", encoding="utf-8") as f:
+                configuration = f.read()
 
-        match suffix := Path(filename).suffix:
-            case ".yaml":
-                return yaml.decode(configuration, type=cls)
-            case ".toml":
-                return toml.decode(configuration, type=cls)
-            case _:
-                raise ValueError(f"Unsupported configuration file format: {suffix}")
+            match suffix := Path(filename).suffix:
+                case ".yaml":
+                    return yaml.decode(configuration, type=cls)
+                case ".toml":
+                    return toml.decode(configuration, type=cls)
+                case _:
+                    raise ValueError(f"Unsupported configuration file format: {suffix}")
+
+        return cls()
 
     def get_provider(self, provider: str) -> OpenaiProvider | None:
         """Get the configuration for a specific AI provider."""

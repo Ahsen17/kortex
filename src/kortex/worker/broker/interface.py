@@ -13,7 +13,7 @@ The broker design supports:
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Self
 
 from msgspec import json
@@ -42,7 +42,7 @@ class BrokerMessage[T]:
     payload: T
     key: str | None = None
     timestamp: float | None = None
-    metadata: dict[str, Any] = {}  # noqa: RUF008
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         return f"BrokerMessage(queue={self.queue!r}, key={self.key!r}, payload={self.payload!r})"
