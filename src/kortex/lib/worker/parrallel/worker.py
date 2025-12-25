@@ -1,46 +1,37 @@
-"""Worker executor for parallel task framework."""
-
-from __future__ import annotations
-
 import asyncio
 import importlib
 import inspect
 import time
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import Any
 
 import structlog
 
+from ..broker import Message
 from .config import WorkerConfig
-from .enum import TaskStatus, WorkerState
+from .enum import WorkerState
 from .integration import WorkerHealth, WorkerStat
-from .message import TaskMessage
+from .protocol import ParallelBrokerABC, TaskStoreABC
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
+__all__ = ("TaskRegister",)
 
-    from kortex.worker.broker.interface import AsyncBroker
-
-    from .interface import TaskStore
-
-
-__all__ = ("Worker", "register_task")
-
-# Global task registry
-_task_registry: dict[str, Callable] = {}
-
-# Logger
 logger = structlog.stdlib.get_logger(__name__)
 
 
-def register_task(name: str, func: Callable) -> None:
-    """Register a task function in the global registry.
+class TaskRegister:
+    _task_registry: dict[str, Callable] = {}
 
-    Args:
-        name: Task name
-        func: Task function
-    """
-    _task_registry[name] = func
+    @classmethod
+    def register_task(cls, name: str, func: Callable) -> None:
+        """Register a task function in the global registry."""
+
+        cls._task_registry[name] = func
+
+    @classmethod
+    def get_task(cls, name: str) -> Callable | None:
+        """Get a task function from the global registry."""
+
+        return cls._task_registry.get(name, None)
 
 
 class Worker:
@@ -48,10 +39,10 @@ class Worker:
 
     def __init__(
         self,
-        broker: AsyncBroker,
+        broker: ParallelBrokerABC,
         queue: str,
         config: WorkerConfig | None = None,
-        task_store: TaskStore | None = None,
+        task_store: TaskStoreABC | None = None,
     ):
         """Initialize worker.
 
@@ -67,6 +58,7 @@ class Worker:
         self.task_store = task_store
 
         self._state = WorkerState.IDLE
+        self._start_time: float | None = None
         self._running = False
         self._current_tasks: set[asyncio.Task] = set()
         self._processed_count = 0
@@ -88,13 +80,11 @@ class Worker:
             failed=self._failed_count,
             running_tasks=len(self._current_tasks),
             last_heartbeat=self._last_heartbeat,
-            uptime=time.time() - self._start_time if hasattr(self, "_start_time") else 0,
+            uptime=time.time() - self._start_time if self._start_time else 0,
         )
 
     async def start(self) -> None:
-        """Start the worker."""
-        if self._running:
-            return
+        """Start worker."""
 
         self._running = True
         self._state = WorkerState.RUNNING
@@ -115,6 +105,7 @@ class Worker:
                         self.queue,
                         timeout=self.config.queue_timeout,
                     )
+
                 except Exception as e:  # noqa: BLE001
                     # Log error and continue
                     logger.error("Error consuming message from queue", error=e)
@@ -126,24 +117,34 @@ class Worker:
 
                 if message is None:
                     # No message available, continue
+                    await asyncio.sleep(0.1)
                     continue
 
                 # Parse message
                 try:
-                    task_message = TaskMessage.from_dict(message.payload)
-
                     # Execute task
-                    task = asyncio.create_task(self._execute_task(message=task_message))
+                    task = asyncio.create_task(self._execute_task(message))
                     self._current_tasks.add(task)
                     task.add_done_callback(self._current_tasks.discard)
+
                 except Exception:  # noqa: BLE001, S112
                     # Invalid message, skip
                     continue
 
         except asyncio.CancelledError:
             pass
+
         finally:
             self._state = WorkerState.STOPPED
+
+    async def _execute_task(self, message: Message) -> None:
+        """Execute a single task.
+
+        Args:
+            message: Task message
+        """
+
+        raise NotImplementedError()  # TODO: need refactor `Message` struct
 
     async def stop(self) -> None:
         """Stop the worker gracefully."""
@@ -164,86 +165,6 @@ class Worker:
 
         self._state = WorkerState.STOPPED
 
-    async def _execute_task(self, message: TaskMessage) -> None:
-        """Execute a single task.
-
-        Args:
-            message: Task message
-        """
-        time.time()
-        task_func = None
-
-        try:
-            # Update status to PROCESSING
-            message.status = TaskStatus.PROCESSING
-            message.executed_at = datetime.now(UTC)
-            message.worker_id = f"worker-{id(self)}"
-
-            if self.task_store:
-                await self.task_store.update(
-                    message.task_id,
-                    status=message.status,
-                    executed_at=message.executed_at,
-                    worker_id=message.worker_id,
-                )
-
-            # Get task function
-            task_func = self._get_task_function(message.task_name)
-            if not task_func:
-                raise ValueError(f"Task function '{message.task_name}' not found")
-
-            # Execute with timeout
-            timeout = message.timeout or self.config.task_timeout
-            result = await asyncio.wait_for(
-                self._run_task_function(task_func, message.payload),
-                timeout=timeout,
-            )
-
-            # Success
-            message.status = TaskStatus.SUCCESS
-            message.result = result
-            message.completed_at = datetime.now(UTC)
-
-            self._processed_count += 1
-
-        except TimeoutError:
-            timeout_value = message.timeout or self.config.task_timeout
-            message.status = TaskStatus.FAILED
-            message.error = f"Task timeout after {timeout_value}s"
-            message.completed_at = datetime.now(UTC)
-            self._failed_count += 1
-
-        except Exception as e:  # noqa: BLE001
-            # Check retry
-            if message.retry_count < message.max_retries:
-                message.status = TaskStatus.RETRYING
-                message.retry_count += 1
-                message.error = str(e)
-
-                # Re-submit to queue with delay
-                delay = self._calculate_retry_delay(message.retry_count)
-                await self._retry_task(message, delay)
-            else:
-                message.status = TaskStatus.FAILED
-                message.error = str(e)
-                message.completed_at = datetime.now(UTC)
-                self._failed_count += 1
-
-        finally:
-            # Update task store
-            if self.task_store:
-                await self.task_store.update(
-                    message.task_id,
-                    status=message.status,
-                    result=message.result,
-                    error=message.error,
-                    retry_count=message.retry_count,
-                    completed_at=message.completed_at,
-                )
-
-            # Log completion
-            self._last_heartbeat = time.time()
-
     def _get_task_function(self, task_name: str) -> Callable | None:
         """Get task function by name.
 
@@ -254,15 +175,17 @@ class Worker:
             Task function or None
         """
         # Check global registry
-        if task_name in _task_registry:
-            return _task_registry[task_name]
+        if task := TaskRegister.get_task(task_name):
+            return task
 
         # Try to import from module
         if "." in task_name:
             try:
                 module_name, func_name = task_name.rsplit(".", 1)
                 module = importlib.import_module(module_name)
+
                 return getattr(module, func_name, None)
+
             except (ImportError, AttributeError):
                 pass
 
@@ -287,8 +210,10 @@ class Worker:
         # Convert result to dict
         if result is None:
             return {"status": "completed"}
+
         if isinstance(result, dict):
             return result
+
         return {"result": result}
 
     def _calculate_retry_delay(self, retry_count: int) -> int:
@@ -305,7 +230,7 @@ class Worker:
         delay = min(base_delay * (2**retry_count), max_delay)
         return int(delay)
 
-    async def _retry_task(self, message: TaskMessage, delay: int) -> None:
+    async def _retry_task(self, message: Message, delay: int) -> None:
         """Re-submit task for retry with delay.
 
         Args:
@@ -316,13 +241,7 @@ class Worker:
         await asyncio.sleep(delay)
 
         # Re-submit to broker
-        await self.broker.produce(
-            queue=message.queue,
-            payload=message.to_dict(),
-            priority=message.priority,
-            ttl=message.ttl,
-            key=message.key,
-        )
+        await self.broker.produce(message)
 
     def health_check(self) -> WorkerHealth:
         """Perform health check.

@@ -208,7 +208,7 @@ class WorkerPool:
             for worker in workers:
                 health = worker.health_check()
                 worker_health.append(health)
-                if not health["healthy"]:
+                if not health.healthy:
                     queue_healthy = False
                     all_healthy = False
 

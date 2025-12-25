@@ -1,30 +1,20 @@
-"""Valkey-based async broker implementation.
-
-This module provides an AsyncBroker implementation using Valkey as the backend.
-It uses Valkey's list data structure to implement queues and pub/sub for message routing.
-"""
-
 import inspect
+import time
 from collections.abc import Awaitable
-from time import time
 from typing import Any
 
-from msgspec import json
-from valkey.asyncio import Redis
+import anyio
+from valkey.asyncio import BlockingConnectionPool
+from valkey.asyncio import Valkey as AsyncValkey
 
-from kortex.worker.broker.config import QueueConfig
-from kortex.worker.broker.exception import (
-    BrokerConnectionError,
-    QueueExistsError,
-    QueueNotFoundError,
-)
-from kortex.worker.broker.integration import BrokerHealth
-from kortex.worker.broker.interface import AsyncBroker, BrokerMessage
-
-__all__ = ("AsyncValkeyBroker",)
+from ..constant import BROKER_QUEUE_PREFIX, DEFAULT_QUEUE_SIZE, DEFAULT_TIMEOUT, DEFAULT_TTL, MESSAGE_KEY_SEPERATOR
+from ..exception import BrokerConnectionError, QueueExistsError, QueueFullError, QueueNotFoundError
+from ..integration import BrokerHealth
+from ..message import Message
+from ..protocol import AsyncBrokerABC
 
 
-class _AsyncRedisClient:
+class _asyncValkeyClient:  # noqa: N801
     """Type-safe wrapper for Redis async client.
 
     Valkey's type stubs return Union[Awaitable[T], T] for all methods to support
@@ -32,7 +22,7 @@ class _AsyncRedisClient:
     usage, centralizing the type ignore comments in one place.
     """
 
-    def __init__(self, client: Redis) -> None:
+    def __init__(self, client: AsyncValkey) -> None:
         self._client = client
 
     @staticmethod
@@ -75,16 +65,14 @@ class _AsyncRedisClient:
         return None  # type: ignore
 
     async def lpop(self, name: str) -> bytes | None:
-        result = await self.await_if_needed(self._client.lpop(name))
-        if result is None:
-            return None
-
-        if isinstance(result, str):
-            return result.encode("utf-8")
+        match await self.await_if_needed(self._client.lpop(name)):
+            case str() as result:
+                return result.encode("utf-8")
+            case _:
+                return None
 
         # lpop without count returns str|bytes, with count returns list
         # We don't use count, so this should be str|bytes
-        return None
 
     async def llen(self, name: str) -> int:
         return await self.await_if_needed(self._client.llen(name))
@@ -99,30 +87,19 @@ class _AsyncRedisClient:
         await self._client.aclose()
 
 
-class AsyncValkeyBroker[T](AsyncBroker[T]):
+class AsyncValkeyBroker[T: Message](AsyncBrokerABC[T]):
     """Asynchronous Valkey-based message broker.
 
     Uses Valkey lists for queue storage and key-based filtering.
     Each queue is stored as a Valkey list with messages serialized as JSON.
-
-    Queue naming convention:
-    - Base queue: `queue:{queue_name}`
-    - Key-specific queue: `queue:{queue_name}:{key}`
-
-    Attributes:
-        client: The Valkey async client
-        config: Optional queue configuration
     """
 
     def __init__(
         self,
-        client: Redis | None = None,
-        *,
         host: str = "localhost",
         port: int = 6379,
-        db: int = 0,
         password: str | None = None,
-        config: QueueConfig | None = None,
+        db: int = 0,
         **kwargs: Any,
     ) -> None:
         """Initialize the AsyncValkeyBroker.
@@ -134,65 +111,39 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
             db: Valkey database number (ignored if client provided)
             password: Valkey password (ignored if client provided)
             config: Queue configuration
-            **kwargs: Additional arguments passed to Redis client
+            **kwargs: Additional keyword arguments passed to Valkey client
         """
-        self._raw_client = client
-        self._client: _AsyncRedisClient | None = None
+
         self._host = host
         self._port = port
-        self._db = db
         self._password = password
-        self._kwargs = kwargs
-        self._config = config
-        self._connected = False
+        self._db = db
+        self._args = kwargs
 
-    async def connect(self, **kwargs: Any) -> None:
-        """Establish connection to Valkey.
+        self._raw_client: AsyncValkey | None = None
+        self._client: _asyncValkeyClient | None = None
 
-        Args:
-            **kwargs: Connection parameters (host, port, password, etc.)
+        self._lock = anyio.Lock()
+        self._contented = False
+
+    @property
+    def client(self) -> AsyncValkey:
+        """Get the underlying Valkey client.
+
+        Returns:
+            The Valkey async client
 
         Raises:
-            BrokerConnectionError: If connection fails
+            RuntimeError: If not connected
         """
-        try:
-            if self._raw_client is None:
-                # Use provided kwargs or instance attributes
-                host = kwargs.get("host", self._host)
-                port = kwargs.get("port", self._port)
-                db = kwargs.get("db", self._db)
-                password = kwargs.get("password", self._password)
 
-                self._raw_client = Redis(
-                    host=host,
-                    port=port,
-                    db=db,
-                    password=password,
-                    **self._kwargs,
-                    **{k: v for k, v in kwargs.items() if k not in ("host", "port", "db", "password")},
-                )
+        if self._raw_client is None:
+            raise RuntimeError("Client not initialized. Call connect() first.")
+        return self._raw_client
 
-            self._client = _AsyncRedisClient(self._raw_client)
-
-            # Test connection
-            await self._client.ping()
-            self._connected = True
-
-        except Exception as e:
-            raise BrokerConnectionError(f"Failed to connect to Valkey: {e}") from e
-
-    async def disconnect(self, **kwargs: Any) -> None:
-        """Disconnect from Valkey.
-
-        Args:
-            **kwargs: Additional parameters (unused)
-        """
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-            self._raw_client = None
-
-        self._connected = False
+    async def set_connected(self, state: bool) -> None:
+        async with self._lock:
+            self._contented = state
 
     async def is_connected(self) -> bool:
         """Check if connected to Valkey.
@@ -200,14 +151,66 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
         Returns:
             True if connected, False otherwise
         """
-        if not self._connected or self._client is None:
-            return False
+
+        async with self._lock:
+            if not self._contented or self._client is None:
+                return False
+
         try:
             await self._client.ping()
             return True
+
         except Exception:  # noqa: BLE001
-            self._connected = False
+            await self.set_connected(False)
             return False
+
+    async def connect(self) -> None:
+        """Establish connection to Valkey.
+
+        Raises:
+            BrokerConnectionError: If connection fails
+        """
+
+        if await self.is_connected():
+            return
+
+        try:
+            if self._raw_client is None:
+                # Create async client from conn pool
+                self._raw_client = AsyncValkey.from_pool(
+                    connection_pool=BlockingConnectionPool(
+                        host=self._host,
+                        port=self._port,
+                        password=self._password,
+                        db=self._db,
+                    )
+                )
+
+            if self._client is None:
+                self._client = _asyncValkeyClient(self._raw_client)
+
+            await self._client.ping()
+
+            await self.set_connected(True)
+
+        except Exception as e:
+            raise BrokerConnectionError(
+                "Failed to connect to Valkey",
+            ) from e
+
+    async def disconnect(self, force: bool | None = None) -> None:
+        """Disconnect from Valkey."""
+
+        if not await self.is_connected():
+            return
+
+        if self._client:
+            await self._client.aclose()
+
+            self._client = None
+            self._raw_client = None
+
+        await self.set_connected(False)
 
     async def health_check(self) -> BrokerHealth:
         """Perform health check on Valkey connection.
@@ -215,18 +218,18 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
         Returns:
             BrokerHealth with status information
         """
-        start_time = time()
-        try:
-            if not await self.is_connected():
-                return BrokerHealth(
-                    status="unhealthy",
-                    error=BrokerConnectionError("Not connected"),
-                )
 
-            if self._client is None:
-                raise BrokerConnectionError("Not connected")
+        start_time = time.time()
+
+        if not await self.is_connected() or self._client is None:
+            return BrokerHealth(
+                status="unhealthy",
+                error=BrokerConnectionError("Not connected."),
+            )
+
+        try:
             await self._client.ping()
-            response_time = (time() - start_time) * 1000
+            resp_time = (time.perf_counter() - start_time) * 1000
 
             # Get server info
             info = await self._client.info("server")
@@ -238,14 +241,15 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
 
             return BrokerHealth(
                 status="healthy",
-                response_time_ms=response_time,
+                response_time_ms=resp_time,
                 version=version,
                 connected_clients=connected_clients,
             )
+
         except Exception as e:  # noqa: BLE001
             return BrokerHealth(
                 status="unhealthy",
-                response_time_ms=(time() - start_time) * 1000,
+                response_time_ms=(time.perf_counter() - start_time) * 1000,
                 error=e,
             )
 
@@ -259,78 +263,63 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
         Returns:
             Valkey key string
         """
-        if key:
-            return f"queue:{queue}:{key}"
-        return f"queue:{queue}"
 
-    async def produce(
-        self,
-        queue: str,
-        payload: T,
-        priority: int | None = None,
-        ttl: float | None = None,
-        key: str | None = None,
-        **kwargs: Any,
-    ) -> None:
+        if key:
+            return f"{BROKER_QUEUE_PREFIX}:{queue}:{key}"
+        return f"{BROKER_QUEUE_PREFIX}:{queue}"
+
+    async def produce(self, message: T) -> None:
         """Produce a message to a specific queue.
 
         Args:
-            queue: The name of the queue to produce to
-            payload: The message data to produce
-            priority: Optional priority level (higher = more urgent)
-            ttl: Optional time-to-live in seconds before message expires
-            key: The message key for routing/filtering
-            **kwargs: Additional implementation-specific parameters
+            message: The message to produce
 
         Raises:
             BrokerConnectionError: If the broker is not connected
             ValueError: If queue name is invalid
+            QueueFullError: If the queue is full
         """
-        if not self._connected or self._client is None:
-            raise BrokerConnectionError("Not connected to Valkey")
 
-        if not queue:
-            raise ValueError("Queue name cannot be empty")
+        if not await self.is_connected() or self._client is None:
+            raise BrokerConnectionError("Not connected.")
 
-        # Create message container
-        message: dict[str, Any] = {
-            "payload": payload,
-            "key": key,
-            "priority": priority,
-            "timestamp": kwargs.get("timestamp"),
-        }
+        if not message.queue:
+            raise ValueError("Queue name")
 
-        # Serialize message
-        message_bytes = json.encode(message)
+        if (
+            await self.queue_size(
+                message.queue,
+                message.key,
+            )
+            > DEFAULT_QUEUE_SIZE
+        ):
+            raise QueueFullError(f"Queue '{message.queue}' is full.")
 
-        # Determine target queue(s)
-        queue_name = self._get_queue_name(queue, key)
+        queue_name = self._get_queue_name(message.queue, message.key)
 
-        # Use LPUSH for priority (higher priority = push to front)
-        # If priority is specified, we push to front, otherwise to back
-        if priority is not None and priority > 0:
-            await self._client.lpush(queue_name, message_bytes)
+        if (priority := message.priority) is not None and priority > 0:
+            await self._client.lpush(queue_name, message.to_jsonb())
         else:
-            await self._client.rpush(queue_name, message_bytes)
+            await self._client.rpush(queue_name, message.to_jsonb())
 
-        # Set TTL if specified
-        if ttl is not None:
-            await self._client.expire(queue_name, int(ttl))
+        # Set TTL
+        await self._client.expire(
+            queue_name,
+            int(message.ttl or DEFAULT_TTL),
+        )
 
     async def consume(
         self,
         queue: str,
         key: str | None = None,
         timeout: float | None = None,
-        **kwargs: Any,
-    ) -> BrokerMessage[T] | None:
+    ) -> Message | None:
         """Consume a message from a specific queue.
 
         Args:
             queue: The name of the queue to consume from
             key: Optional message key to filter by
             timeout: Optional timeout in seconds (uses default if None)
-            **kwargs: Additional implementation-specific parameters
 
         Returns:
             A BrokerMessage instance if a message is available, None if timeout
@@ -339,52 +328,36 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
             QueueNotFoundError: If the queue does not exist
             BrokerConnectionError: If the broker is not connected
         """
-        if not self._connected or self._client is None:
-            raise BrokerConnectionError("Not connected to Valkey")
+
+        if not await self.is_connected() or self._client is None:
+            raise BrokerConnectionError("Not connected.")
 
         queue_name = self._get_queue_name(queue, key)
 
         # Check if queue exists
         if not await self._client.exists(queue_name):
-            raise QueueNotFoundError(f"Queue '{queue_name}' does not exist")
+            raise QueueNotFoundError(f"Queue '{queue}' does not exist.")
 
         # Use BLPOP for blocking pop with timeout
-        if timeout is not None:
-            result = await self._client.blpop([queue_name], timeout=int(timeout))
-        else:
-            result = await self._client.lpop(queue_name)
+        result = await self._client.blpop(
+            [queue_name],
+            timeout=int(timeout or DEFAULT_TIMEOUT),
+        )
 
         if result is None:
             return None
 
         # Parse message - result is tuple[bytes, bytes] or bytes
-        message_bytes = result[1] if isinstance(result, tuple) else result
-        # Ensure bytes for json.decode
-        if isinstance(message_bytes, str):
-            message_bytes = message_bytes.encode("utf-8")
-        elif not isinstance(message_bytes, bytes):
-            # Should not happen, but handle gracefully
-            raise ValueError(f"Unexpected message type: {type(message_bytes)}")
+        msg_bytes = result[1] if isinstance(result, tuple) else result
 
-        message_data = json.decode(message_bytes, type=dict[str, Any])
+        return Message.from_jsonb(msg_bytes)
 
-        return BrokerMessage(
-            queue=queue,
-            key=key,
-            payload=message_data.get("payload"),  # type: ignore[arg-type]
-            timestamp=message_data.get("timestamp"),
-            metadata={
-                "priority": message_data.get("priority"),
-            },
-        )
-
-    async def purge(self, queue: str, key: str | None = None, **kwargs: Any) -> int:
+    async def purge(self, queue: str, key: str | None = None) -> int:
         """Remove all messages from a queue (optionally filtered by key).
 
         Args:
             queue: The name of the queue to purge
             key: Optional message key to filter which messages to remove
-            **kwargs: Additional implementation-specific parameters
 
         Returns:
             Number of messages removed
@@ -393,7 +366,8 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
             QueueNotFoundError: If the queue does not exist
             BrokerConnectionError: If the broker is not connected
         """
-        if not self._connected or self._client is None:
+
+        if not await self.is_connected() or self._client is None:
             raise BrokerConnectionError("Not connected to Valkey")
 
         queue_name = self._get_queue_name(queue, key)
@@ -412,13 +386,12 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
 
         return length
 
-    async def queue_size(self, queue: str, key: str | None = None, **kwargs: Any) -> int:
+    async def queue_size(self, queue: str, key: str | None = None) -> int:
         """Get the number of messages in a queue.
 
         Args:
             queue: The name of the queue to check
             key: Optional message key to filter count
-            **kwargs: Additional implementation-specific parameters
 
         Returns:
             Number of messages in the queue
@@ -427,7 +400,8 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
             QueueNotFoundError: If the queue does not exist
             BrokerConnectionError: If the broker is not connected
         """
-        if not self._connected or self._client is None:
+
+        if not await self.is_connected() or self._client is None:
             raise BrokerConnectionError("Not connected to Valkey")
 
         queue_name = self._get_queue_name(queue, key)
@@ -439,18 +413,18 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
 
         return await self._client.llen(queue_name)
 
-    async def create_queue(self, queue: str, **kwargs: Any) -> None:
+    async def create_queue(self, queue: str) -> None:
         """Create a new queue.
 
         Args:
             queue: The name of the queue to create
-            **kwargs: Additional implementation-specific parameters (e.g., size limits)
 
         Raises:
             QueueExistsError: If the queue already exists
             BrokerConnectionError: If the broker is not connected
         """
-        if not self._connected or self._client is None:
+
+        if not await self.is_connected() or self._client is None:
             raise BrokerConnectionError("Not connected to Valkey")
 
         # Check if queue already exists
@@ -464,18 +438,18 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
         await self._client.rpush(queue_name, "dummy")
         await self._client.lpop(queue_name)
 
-    async def delete_queue(self, queue: str, **kwargs: Any) -> None:
+    async def delete_queue(self, queue: str) -> None:
         """Delete an existing queue.
 
         Args:
             queue: The name of the queue to delete
-            **kwargs: Additional implementation-specific parameters
 
         Raises:
             QueueNotFoundError: If the queue does not exist
             BrokerConnectionError: If the broker is not connected
         """
-        if not self._connected or self._client is None:
+
+        if not await self.is_connected() or self._client is None:
             raise BrokerConnectionError("Not connected to Valkey")
 
         queue_name = self._get_queue_name(queue)
@@ -487,11 +461,8 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
 
         await self._client.delete(queue_name)
 
-    async def list_queues(self, **kwargs: Any) -> list[str]:
+    async def list_queues(self) -> list[str]:
         """List all available queues.
-
-        Args:
-            **kwargs: Additional implementation-specific parameters
 
         Returns:
             List of queue names
@@ -499,7 +470,8 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
         Raises:
             BrokerConnectionError: If the broker is not connected
         """
-        if not self._connected or self._client is None:
+
+        if not await self.is_connected() or self._client is None:
             raise BrokerConnectionError("Not connected to Valkey")
 
         # Get all keys matching queue pattern
@@ -510,62 +482,8 @@ class AsyncValkeyBroker[T](AsyncBroker[T]):
         for key in keys:
             key_str = key.decode("utf-8")
             # Format: queue:{queue_name} or queue:{queue_name}:{key}
-            parts = key_str.split(":", 2)
-            if len(parts) >= 2:
-                queues.add(parts[1])
+            parts = key_str.split(MESSAGE_KEY_SEPERATOR, 3)
+            if len(parts) >= 3:
+                queues.add(parts[2])
 
         return sorted(queues)
-
-    async def list_keys(self, queue: str, **kwargs: Any) -> list[str]:
-        """List all message keys in a queue.
-
-        Args:
-            queue: The name of the queue
-            **kwargs: Additional implementation-specific parameters
-
-        Returns:
-            List of message keys in the queue
-
-        Raises:
-            QueueNotFoundError: If the queue does not exist
-            BrokerConnectionError: If the broker is not connected
-        """
-        if not self._connected or self._client is None:
-            raise BrokerConnectionError("Not connected to Valkey")
-
-        # Check if base queue exists
-        base_queue = self._get_queue_name(queue)
-        base_exists = await self._client.exists(base_queue)
-
-        # Find all key-specific queues
-        pattern = f"queue:{queue}:*"
-        keys = await self._client.keys(pattern)
-
-        result: set[str] = set()
-
-        # Add base queue indicator if it has messages
-        if base_exists and await self._client.llen(base_queue) > 0:
-            result.add("default")
-
-        # Extract keys from key-specific queues
-        for key in keys:
-            key_str = key.decode("utf-8")
-            parts = key_str.split(":", 2)
-            if len(parts) >= 3:
-                result.add(parts[2])
-
-        return sorted(result)
-
-    @property
-    def client(self) -> Redis:
-        """Get the underlying Valkey client.
-
-        Returns:
-            The Valkey async client
-
-        Raises:
-            RuntimeError: If not connected
-        """
-        if self._raw_client is None:
-            raise RuntimeError("Client not initialized. Call connect() first.")
-        return self._raw_client

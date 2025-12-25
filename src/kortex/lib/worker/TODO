@@ -1,0 +1,25 @@
+Refactor from kortex backend worker.
+
+# Broker
+
+[x] message
+[x] protocol
+
+## Plugin
+
+[x] valkey
+
+# Parallel
+
+[x] protocol
+[x] scheduler
+[-] worker
+[x] task
+[x] broker
+[ ] pool
+[ ] parallel
+
+## Plugin
+
+[ ] fastapi
+ 
