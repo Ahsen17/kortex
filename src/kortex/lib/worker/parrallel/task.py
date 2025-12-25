@@ -86,7 +86,7 @@ class TaskWrapper:
 
     async def delay(
         self,
-        message: Message,
+        message: Message,  # TODO: pass arguments to build message object instead
         schedule: Literal["immediate", "delay", "cron"],
         delay_seconds: int = 0,
         cron: str | None = None,

@@ -90,14 +90,17 @@ class ParallelBrokerABC(ABC):
 
     async def disconnect(self) -> None:
         """Disconnect from broker."""
+
         await self._broker.disconnect()
 
     async def is_connected(self) -> bool:
         """Check if connected."""
+
         return await self._broker.is_connected()
 
     async def health_check(self) -> "BrokerHealth":
         """Perform health check."""
+
         return await self._broker.health_check()
 
     @overload
@@ -265,6 +268,6 @@ class ParallelBrokerABC(ABC):
     ) -> None:
         """Exit context manager."""
 
-        # await self._scheduler.stop()  # TODO: scheduler waiting implement  # noqa: ERA001, RUF100
+        await self._scheduler.stop()
 
         await self.disconnect()
