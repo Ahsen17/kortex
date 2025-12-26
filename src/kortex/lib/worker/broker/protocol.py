@@ -1,76 +1,16 @@
-"""Broker abstract base class for message queue operations.
-
-This module defines the abstract base class (ABC) for message brokers that support
-common message queue operations including producing, consuming, and listening to
-multiple message queues with flexible message routing.
-
-The broker design supports:
-- Message production to named queues with message keys
-- Message consumption from specific queues with key-based filtering
-- Multi-queue listening for concurrent message processing
-- Context manager support for resource management
-- Async and sync operation modes
-"""
-
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
-from msgspec import json
+from .message import Message
 
-from .integration import BrokerHealth
-
-__all__ = (
-    "AsyncBroker",
-    "BrokerMessage",
-)
+if TYPE_CHECKING:
+    from .integration import BrokerHealth
 
 
-@dataclass
-class BrokerMessage[T]:
-    """Container for messages retrieved from the broker.
-
-    Attributes:
-        queue: The name of the queue the message was retrieved from
-        key: The message key used for routing/filtering
-        payload: The actual message data
-        timestamp: Optional timestamp when the message was produced
-        metadata: Optional additional metadata about the message
-    """
-
-    queue: str
-    payload: T
-    key: str | None = None
-    timestamp: float | None = None
-    metadata: dict[str, Any] = {}  # noqa: RUF008
-
-    def __repr__(self) -> str:
-        return f"BrokerMessage(queue={self.queue!r}, key={self.key!r}, payload={self.payload!r})"
-
-    def to_json(self) -> str:
-        """Convert the message to a JSON string."""
-
-        return json.encode(self).decode("utf-8")
-
-    def to_bytes(self) -> bytes:
-        """Convert the message to json bytes"""
-
-        return json.encode(self)
-
-    @classmethod
-    def from_json(cls, data: str) -> Self:
-        """Create a BrokerMessage from a JSON string."""
-
-        return json.decode(data, type=cls)
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> Self:
-        """Create a BrokerMessage from json bytes."""
-
-        return json.decode(data, type=cls)
+__all__ = ("AsyncBrokerABC",)
 
 
-class AsyncBroker[T](ABC):
+class AsyncBrokerABC[T: Message](ABC):
     """Abstract base class for message brokers.
 
     This class defines the interface for message brokers that support
@@ -89,30 +29,15 @@ class AsyncBroker[T](ABC):
         ...         print(msg.payload)
     """
 
-    # Class attributes for configuration
-
     @abstractmethod
-    async def produce(
-        self,
-        queue: str,
-        payload: T,
-        priority: int | None = None,
-        ttl: float | None = None,
-        key: str | None = None,
-        **kwargs: Any,
-    ) -> None:
+    async def produce(self, message: T) -> None:
         """Produce a message to a specific queue.
 
         This method adds a message to the specified queue with the given key.
         The message can optionally have a priority and time-to-live (TTL).
 
         Args:
-            queue: The name of the queue to produce to
-            key: The message key for routing/filtering
-            payload: The message data to produce
-            priority: Optional priority level (higher = more urgent)
-            ttl: Optional time-to-live in seconds before message expires
-            **kwargs: Additional implementation-specific parameters
+            message: The message to produce
 
         Raises:
             QueueFullError: If the queue is full and cannot accept more messages
@@ -129,8 +54,7 @@ class AsyncBroker[T](ABC):
         queue: str,
         key: str | None = None,
         timeout: float | None = None,
-        **kwargs: Any,
-    ) -> BrokerMessage[T] | None:
+    ) -> Message | None:
         """Consume a message from a specific queue.
 
         Retrieves a single message from the specified queue, optionally filtered
@@ -140,7 +64,6 @@ class AsyncBroker[T](ABC):
             queue: The name of the queue to consume from
             key: Optional message key to filter by
             timeout: Optional timeout in seconds (uses default if None)
-            **kwargs: Additional implementation-specific parameters
 
         Returns:
             A BrokerMessage instance if a message is available, None if timeout
@@ -157,13 +80,12 @@ class AsyncBroker[T](ABC):
         """
 
     @abstractmethod
-    async def purge(self, queue: str, key: str | None = None, **kwargs: Any) -> int:
+    async def purge(self, queue: str, key: str | None = None) -> int:
         """Remove all messages from a queue (optionally filtered by key).
 
         Args:
             queue: The name of the queue to purge
             key: Optional message key to filter which messages to remove
-            **kwargs: Additional implementation-specific parameters
 
         Returns:
             Number of messages removed
@@ -174,13 +96,12 @@ class AsyncBroker[T](ABC):
         """
 
     @abstractmethod
-    async def queue_size(self, queue: str, key: str | None = None, **kwargs: Any) -> int:
+    async def queue_size(self, queue: str, key: str | None = None) -> int:
         """Get the number of messages in a queue.
 
         Args:
             queue: The name of the queue to check
             key: Optional message key to filter count
-            **kwargs: Additional implementation-specific parameters
 
         Returns:
             Number of messages in the queue
@@ -191,12 +112,11 @@ class AsyncBroker[T](ABC):
         """
 
     @abstractmethod
-    async def create_queue(self, queue: str, **kwargs: Any) -> None:
+    async def create_queue(self, queue: str) -> None:
         """Create a new queue.
 
         Args:
             queue: The name of the queue to create
-            **kwargs: Additional implementation-specific parameters (e.g., size limits)
 
         Raises:
             QueueExistsError: If the queue already exists
@@ -204,12 +124,11 @@ class AsyncBroker[T](ABC):
         """
 
     @abstractmethod
-    async def delete_queue(self, queue: str, **kwargs: Any) -> None:
+    async def delete_queue(self, queue: str) -> None:
         """Delete an existing queue.
 
         Args:
             queue: The name of the queue to delete
-            **kwargs: Additional implementation-specific parameters
 
         Raises:
             QueueNotFoundError: If the queue does not exist
@@ -217,11 +136,8 @@ class AsyncBroker[T](ABC):
         """
 
     @abstractmethod
-    async def list_queues(self, **kwargs: Any) -> list[str]:
+    async def list_queues(self) -> list[str]:
         """List all available queues.
-
-        Args:
-            **kwargs: Additional implementation-specific parameters
 
         Returns:
             List of queue names
@@ -231,27 +147,8 @@ class AsyncBroker[T](ABC):
         """
 
     @abstractmethod
-    async def list_keys(self, queue: str, **kwargs: Any) -> list[str]:
-        """List all message keys in a queue.
-
-        Args:
-            queue: The name of the queue
-            **kwargs: Additional implementation-specific parameters
-
-        Returns:
-            List of message keys in the queue
-
-        Raises:
-            QueueNotFoundError: If the queue does not exist
-            BrokerConnectionError: If the broker is not connected
-        """
-
-    @abstractmethod
-    async def connect(self, **kwargs: Any) -> None:
+    async def connect(self) -> None:
         """Establish connection to the broker.
-
-        Args:
-            **kwargs: Connection parameters (host, port, credentials, etc.)
 
         Raises:
             BrokerConnectionError: If connection fails
@@ -259,11 +156,11 @@ class AsyncBroker[T](ABC):
         """
 
     @abstractmethod
-    async def disconnect(self, **kwargs: Any) -> None:
+    async def disconnect(self, force: bool | None = None) -> None:
         """Disconnect from the broker.
 
         Args:
-            **kwargs: Additional implementation-specific parameters
+            force: Whether to force disconnect even if there are pending messages
         """
 
     @abstractmethod
@@ -275,15 +172,11 @@ class AsyncBroker[T](ABC):
         """
 
     @abstractmethod
-    async def health_check(self) -> BrokerHealth:
+    async def health_check(self) -> "BrokerHealth":
         """Perform a health check on the broker.
 
         Returns:
             Dictionary containing health status information
-
-        Example:
-            >>> status = broker.health_check()
-            >>> print(status["status"])  # "healthy" or "unhealthy"
         """
 
     async def __aenter__(self) -> Self:
@@ -302,12 +195,6 @@ class AsyncBroker[T](ABC):
         _exc_val: BaseException | None,
         _exc_tb: Any,
     ) -> None:
-        """Exit context manager for sync usage.
-
-        Args:
-            _exc_type: Exception type (if any)
-            _exc_val: Exception value (if any)
-            _exc_tb: Exception traceback (if any)
-        """
+        """Exit context manager for sync usage."""
 
         await self.disconnect()

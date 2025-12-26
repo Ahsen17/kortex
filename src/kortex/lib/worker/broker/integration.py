@@ -1,14 +1,14 @@
+from dataclasses import dataclass
 from typing import Literal
-
-from kortex.base.types import BaseStruct
 
 __all__ = ("BrokerHealth",)
 
 
-class BrokerHealth(BaseStruct):
+@dataclass
+class BrokerHealth:
     """Broker health status."""
 
-    status: Literal["healthy", "unhealthy"]
+    status: Literal["healthy", "unhealthy"] = "unhealthy"
     response_time_ms: float = -1.0
     version: str = "unknown"
     connected_clients: int = 0
