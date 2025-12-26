@@ -62,32 +62,49 @@ class TaskWrapper:
     @overload
     async def delay(
         self,
-        message: Message,
         schedule: Literal["immediate"],
+        *,
+        queue: str | None = None,
+        key: str | None = None,
+        priority: int | None = None,
+        ttl: float | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> None: ...
 
     @overload
     async def delay(
         self,
-        message: Message,
         schedule: Literal["delay"],
         *,
-        delay_seconds: int = 0,
+        delay_seconds: int,
+        queue: str | None = None,
+        key: str | None = None,
+        priority: int | None = None,
+        ttl: float | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> None: ...
 
     @overload
     async def delay(
         self,
-        message: Message,
         schedule: Literal["cron"],
         *,
-        cron: str | None = None,
+        cron: str,
+        queue: str | None = None,
+        key: str | None = None,
+        priority: int | None = None,
+        ttl: float | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> None: ...
 
     async def delay(
         self,
-        message: Message,  # TODO: pass arguments to build message object instead
         schedule: Literal["immediate", "delay", "cron"],
+        queue: str | None = None,
+        key: str | None = None,
+        priority: int | None = None,
+        ttl: float | None = None,
+        meta: dict[str, Any] | None = None,
         delay_seconds: int = 0,
         cron: str | None = None,
         *args: Any,
@@ -96,8 +113,12 @@ class TaskWrapper:
         """Submit task for delayed execution.
 
         Args:
-            message: Task message
-            schedule: Override schedule mode
+            schedule: Schedule mode
+            queue: Queue name
+            key: Task key
+            priority: Task priority
+            ttl: Task time-to-live
+            meta: Task metadata
             delay_seconds: Override delay
             cron: Override cron expression
 
@@ -110,6 +131,16 @@ class TaskWrapper:
 
         if not await self._broker.is_connected():
             await self._broker.connect()
+
+        message = Message(
+            name=self.task_name,
+            body=self._build_payload(args, kwargs),
+            queue=queue or "default",
+            key=key,
+            priority=priority,
+            ttl=ttl,
+            attributes=meta or {},
+        )
 
         message.name = self.task_name
         message.body = self._build_payload(args, kwargs)
