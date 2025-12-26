@@ -1,19 +1,21 @@
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Self
+from uuid import UUID
+
+from msgspec import json
 
 from .enum import MessageStatus
 
 __all__ = (
-    "DeliveryInfo",
     "Message",
-    "MessageBatch",
+    "MessageDeliveryInfo",
 )
 
 
 @dataclass
-class DeliveryInfo:
+class MessageDeliveryInfo:
     """Delivery information for a message.
 
     Tracks the delivery history and retry state of a message, providing
@@ -63,9 +65,36 @@ class DeliveryInfo:
             return False
         return datetime.now(UTC) > self.processing_deadline
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "delivery_count": self.delivery_count,
+            "first_delivery_time": self.first_delivery_time.isoformat() if self.first_delivery_time else None,
+            "last_delivery_time": self.last_delivery_time.isoformat() if self.last_delivery_time else None,
+            "processing_deadline": self.processing_deadline.isoformat() if self.processing_deadline else None,
+            "retry_count": self.retry_count,
+            "error_details": self.error_details,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            delivery_count=data["delivery_count"],
+            first_delivery_time=datetime.fromisoformat(data["first_delivery_time"])
+            if data["first_delivery_time"]
+            else None,
+            last_delivery_time=datetime.fromisoformat(data["last_delivery_time"])
+            if data["last_delivery_time"]
+            else None,
+            processing_deadline=datetime.fromisoformat(data["processing_deadline"])
+            if data["processing_deadline"]
+            else None,
+            retry_count=data["retry_count"],
+            error_details=data["error_details"],
+        )
+
 
 @dataclass
-class Message[T]:
+class Message:
     """Represents a message in the queue.
 
     Standard message structure following industry patterns (AMQP, SQS, Celery).
@@ -82,11 +111,15 @@ class Message[T]:
         expires_at: Optional expiration timestamp.
     """
 
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    body: T | None = field(default=None)
+    id: UUID = field(default_factory=uuid.uuid4)
+    name: str = field(default="")
+    body: dict[str, Any] | None = field(default=None)
     queue: str = field(default="")
+    key: str | None = None
+    priority: int | None = None
+    ttl: float | None = None
     status: MessageStatus = field(default=MessageStatus.PUBLISHED)
-    delivery_info: DeliveryInfo = field(default_factory=DeliveryInfo)
+    delivery_info: MessageDeliveryInfo = field(default_factory=MessageDeliveryInfo)
     attributes: dict[str, Any] = field(default_factory=dict)
     receipt: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -94,6 +127,7 @@ class Message[T]:
 
     def is_expired(self) -> bool:
         """Check if message has expired."""
+
         if self.expires_at is None:
             return False
         return datetime.now(UTC) > self.expires_at
@@ -107,38 +141,72 @@ class Message[T]:
         Returns:
             True if retry count is below maximum.
         """
+
         return self.delivery_info.retry_count < max_retries
 
     def increment_retry(self) -> None:
         """Increment retry count and update delivery info."""
+
         self.delivery_info.retry_count += 1
         self.delivery_info.last_delivery_time = datetime.now(UTC)
         self.status = MessageStatus.QUEUED
 
     def __str__(self) -> str:
         """String representation for debugging."""
+
         return (
-            f"Message(id={self.id[:8]}..., queue={self.queue}, "
+            f"Message(id={self.id.hex[:8]}..., queue={self.queue}, "
             f"status={self.status.value}, retry={self.delivery_info.retry_count})"
         )
 
     def __repr__(self) -> str:
         """Detailed representation."""
-        return f"Message(id={self.id}, queue={self.queue}, status={self.status.value}, body={self.body!r})"
 
+        return f"Message(id={self.id}, queue={self.queue}, status={self.status.value})"
 
-@dataclass
-class MessageBatch[T]:
-    """Batch of messages for efficient processing.
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id.hex,
+            "body": self.body,
+            "queue": self.queue,
+            "key": self.key,
+            "priority": self.priority,
+            "ttl": self.ttl,
+            "status": self.status.value,
+            "delivery_info": self.delivery_info.to_dict(),
+            "attributes": self.attributes,
+            "receipt": self.receipt,
+            "created_at": self.created_at.isoformat(),
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+        }
 
-    Attributes:
-        messages: List of messages.
-        queue: Queue name.
-        total_count: Total messages available (may exceed len(messages)).
-        has_more: Indicates if more messages are available.
-    """
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            id=UUID(data["id"]),
+            body=data["body"],
+            queue=data["queue"],
+            key=data["key"],
+            priority=data["priority"],
+            ttl=data["ttl"],
+            status=MessageStatus(data["status"]),
+            delivery_info=MessageDeliveryInfo.from_dict(data["delivery_info"]),
+            attributes=data["attributes"],
+            receipt=data["receipt"],
+            created_at=datetime.fromisoformat(data["created_at"]),
+            expires_at=datetime.fromisoformat(data["expires_at"]) if data["expires_at"] else None,
+        )
 
-    messages: list[Message[T]]
-    queue: str
-    total_count: int = 0
-    has_more: bool = False
+    def to_json(self) -> str:
+        return json.encode(self.to_dict()).decode("utf-8")
+
+    @classmethod
+    def from_json(cls, data: str) -> Self:
+        return cls.from_dict(json.decode(data))
+
+    def to_jsonb(self) -> bytes:
+        return json.encode(self.to_dict())
+
+    @classmethod
+    def from_jsonb(cls, data: bytes) -> Self:
+        return cls.from_dict(json.decode(data))
