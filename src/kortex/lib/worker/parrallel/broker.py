@@ -5,6 +5,7 @@ from uuid import UUID
 from kortex.lib.worker.broker.message import Message
 
 from ..broker import MessageStatus
+from .enum import TaskStatus
 from .exception import BrokerError, TaskNotFoundError, TaskTimeoutError
 from .protocol import ParallelBrokerABC
 from .schema import TaskResult
@@ -184,10 +185,10 @@ class ParallelBroker(ParallelBrokerABC):
         """
 
         # Cancel from scheduler
-        cancelled = await self._scheduler.cancel_task(task_id)
+        revoked = await self._scheduler.cancel_task(task_id)
 
         # Update task store if available
-        if self._store and cancelled:
-            await self._store.update(task_id, status=MessageStatus.ACKED)
+        if self._store and revoked:
+            await self._store.update(task_id, status=TaskStatus.REVOKED)
 
-        return cancelled
+        return revoked

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self, overload
 from uuid import UUID
 
 from ..broker import AsyncBrokerABC, Message, MessageStatus
+from .enum import TaskStatus
 from .scheduler import Scheduler
 from .schema import TaskResult
 
@@ -27,12 +28,18 @@ class TaskStoreABC(ABC):
         """
 
     @abstractmethod
-    async def update(self, task_id: UUID, **kwargs: Any) -> None:
+    async def update(
+        self,
+        task_id: UUID,
+        status: TaskStatus | None = None,
+        data: TaskResult | None = None,
+    ) -> None:
         """Update task status and metadata.
 
         Args:
             task_id: Task identifier
-            **kwargs: Fields to update
+            status: Task status to update
+            data: Task result data
         """
 
     @abstractmethod

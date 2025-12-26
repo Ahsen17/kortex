@@ -6,7 +6,7 @@ __all__ = (
     "BrokerError",
     "HealthCheckError",
     "ParallelError",
-    "ProcessManagerError",
+    "ParallelProcessError",
     "SchedulerError",
     "TaskNotFoundError",
     "TaskTimeoutError",
@@ -35,7 +35,7 @@ class WorkerPoolError(ParallelError):
     """Raised when worker pool encounters an error."""
 
 
-class ProcessManagerError(ParallelError):
+class ParallelProcessError(ParallelError):
     """Raised when process manager encounters an error."""
 
 

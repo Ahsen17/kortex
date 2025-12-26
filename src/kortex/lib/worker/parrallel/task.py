@@ -111,6 +111,7 @@ class TaskWrapper:
         if not await self._broker.is_connected():
             await self._broker.connect()
 
+        message.name = self.task_name
         message.body = self._build_payload(args, kwargs)
 
         match schedule:

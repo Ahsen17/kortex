@@ -3,17 +3,23 @@ import importlib
 import inspect
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from msgspec import json
 
 from ..broker import Message
 from .config import WorkerConfig
-from .enum import WorkerState
+from .enum import TaskStatus, WorkerState
 from .integration import WorkerHealth, WorkerStat
 from .protocol import ParallelBrokerABC, TaskStoreABC
+from .schema import TaskResult
 
-__all__ = ("TaskRegister",)
+__all__ = (
+    "TaskRegister",
+    "Worker",
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -137,15 +143,6 @@ class Worker:
         finally:
             self._state = WorkerState.STOPPED
 
-    async def _execute_task(self, message: Message) -> None:
-        """Execute a single task.
-
-        Args:
-            message: Task message
-        """
-
-        raise NotImplementedError()  # TODO: need refactor `Message` struct
-
     async def stop(self) -> None:
         """Stop the worker gracefully."""
         self._running = False
@@ -164,6 +161,78 @@ class Worker:
                     task.cancel()
 
         self._state = WorkerState.STOPPED
+
+    async def _execute_task(self, message: Message) -> None:
+        """Execute a single task.
+
+        Args:
+            message: Task message
+        """
+
+        task_func = None
+        task_result: TaskResult | None = None
+
+        try:
+            if self.task_store:
+                task_result = TaskResult(
+                    task_id=message.id,
+                    status=TaskStatus.PROCESSING,
+                    executed_at=datetime.now(UTC),
+                    attributes={"worker_id": f"worker-{id(self)}"},
+                )
+
+                await self.task_store.update(message.id, data=task_result)
+
+            # Get task function
+            task_func = self._get_task_function(message.name)
+            if not task_func:
+                raise ValueError(f"Task function {message.name} not found")
+
+            # Execute with timeout
+            result = await asyncio.wait_for(
+                self._run_task_function(task_func, message.body or {}),
+                timeout=self.config.task_timeout,
+            )
+
+            json.encode(result)  # Check if serializable
+
+            if task_result and self.task_store:
+                task_result.status = TaskStatus.SUCCESS
+                task_result.result = result
+                task_result.completed_at = datetime.now(UTC)
+
+                await self.task_store.update(message.id, data=task_result)
+
+            self._processed_count += 1
+
+        except TimeoutError:
+            self._failed_count += 1
+
+            if task_result and self.task_store:
+                task_result.status = TaskStatus.FAILED
+                task_result.error = f"Task timeout after {self.config.task_timeout}s"
+                task_result.completed_at = datetime.now(UTC)
+
+                await self.task_store.update(message.id, data=task_result)
+
+        except Exception as e:  # noqa: BLE001
+            # TODO: retry implement
+
+            self._failed_count += 1
+
+            if task_result and self.task_store:
+                task_result.status = TaskStatus.FAILED
+                task_result.error = str(e)
+                task_result.completed_at = datetime.now(UTC)
+
+                await self.task_store.update(message.id, data=task_result)
+
+        finally:
+            # Update task store
+            if task_result and self.task_store:
+                await self.task_store.update(task_id=message.id, data=task_result)
+
+            self._last_heartbeat = time.time()
 
     def _get_task_function(self, task_name: str) -> Callable | None:
         """Get task function by name.

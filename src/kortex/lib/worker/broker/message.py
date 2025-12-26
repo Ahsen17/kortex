@@ -112,6 +112,7 @@ class Message:
     """
 
     id: UUID = field(default_factory=uuid.uuid4)
+    name: str = field(default="")
     body: dict[str, Any] | None = field(default=None)
     queue: str = field(default="")
     key: str | None = None

@@ -13,13 +13,17 @@ Refactor from kortex backend worker.
 
 [x] protocol
 [x] scheduler
-[-] worker
+[x] worker
 [x] task
 [x] broker
-[ ] pool
-[ ] parallel
+[x] pool
+[x] parallel
 
 ## Plugin
 
 [ ] fastapi
- 
+
+
+# Optimize
+
+[ ] task retry

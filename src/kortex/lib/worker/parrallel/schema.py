@@ -14,10 +14,11 @@ class TaskResult:
 
     task_id: UUID
     status: TaskStatus
-    result: dict[str, Any] | None = None
+    result: dict[str, Any] | Any | None = None
     error: str | None = None
     executed_at: datetime | None = None
     completed_at: datetime | None = None
+    attributes: dict[str, Any] | None = None
 
     def is_success(self) -> bool:
         """Check if task completed successfully."""
