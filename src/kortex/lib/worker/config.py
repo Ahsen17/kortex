@@ -24,7 +24,7 @@ class WorkerConfig:
     task_timeout: int = 300
     """Maximum time for task execution (seconds)"""
 
-    concurrency: int = 10
+    concurrency: int = 3
     """Number of concurrent tasks per worker"""
 
     heartbeat_interval: int = 30

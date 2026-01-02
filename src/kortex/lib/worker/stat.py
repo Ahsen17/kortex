@@ -11,6 +11,7 @@ __all__ = (
 class WorkerStat:
     """Worker state."""
 
+    name: str | None = None
     state: str = ""
     processed: int = 0
     failed: int = 0

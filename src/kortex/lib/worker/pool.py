@@ -35,30 +35,38 @@ class WorkerPool:
         self._running = False
 
     async def start(self) -> None:
+        logger.info("Starting worker pool...")
+
         if self._running:
             return
 
         self._running = True
         self._state = WorkerPoolState.RUNNING
 
+        if not await self._broker.is_connected():
+            await self._broker.connect()
+
         try:
             # Initialize workers for each queue
             for queue in self._config.queues:
                 self._workers[queue] = []
+
                 for _ in range(self._config.base_workers):
                     await self._add_worker(queue)
+
+                if self._workers[queue]:
+                    await asyncio.gather(*[w.start() for w in self._workers[queue]], return_exceptions=True)
 
             # Start elastic scaling monitor
             if self._config.auto_scale:
                 self._monitor_task = asyncio.create_task(self._monitor_and_scale())
 
         except asyncio.CancelledError:
-            logger.info("Worker pool stopped.")
-
-        finally:
-            await self.stop()
+            logger.warning("Worker pool eventloop cancelled.")
 
     async def stop(self) -> None:
+        logger.info("Stopping worker pool...")
+
         if not self._running:
             return
 
@@ -89,8 +97,6 @@ class WorkerPool:
 
         self._workers[queue].append(worker)
 
-        await asyncio.create_task(worker.start())
-
     async def _remove_worker(self, queue: str) -> bool:
         if queue not in self._workers or not self._workers[queue]:
             return False
@@ -104,6 +110,8 @@ class WorkerPool:
         return True
 
     async def _monitor_and_scale(self) -> None:
+        logger.info("Starting worker pool monitor...")
+
         while self._running:
             try:
                 await asyncio.sleep(10)  # Check every 10 seconds
@@ -127,6 +135,7 @@ class WorkerPool:
 
             except asyncio.CancelledError:
                 break
+
             except Exception as e:  # noqa: BLE001
                 # Log error and continue
                 logger.error("Error monitoring and scaling workers", error=e)

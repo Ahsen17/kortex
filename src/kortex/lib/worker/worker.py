@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import structlog
 from msgspec import json
@@ -30,6 +31,7 @@ class Worker:
         config: WorkerConfig | None = None,
         store: TaskStoreABC | None = None,
     ) -> None:
+        self._name = self.gen_worker_name()
         self._broker = broker
         self._queue = queue
         self._config = config or WorkerConfig()
@@ -45,6 +47,14 @@ class Worker:
         self._failed_count = 0
         self._last_heartbeat = time.time()
 
+    @classmethod
+    def gen_worker_name(cls) -> str:
+        return f"worker-{uuid4().hex[-4:]}"
+
+    @property
+    def name(self) -> str:
+        return self._name
+
     @property
     def state(self) -> WorkerState:
         """Get current worker state."""
@@ -55,6 +65,7 @@ class Worker:
         """Get worker statistics."""
 
         return WorkerStat(
+            name=self.name,
             state=self._state.value,
             processed=self._processed_count,
             failed=self._failed_count,
@@ -64,57 +75,55 @@ class Worker:
         )
 
     async def start(self) -> None:
+        logger.info("Starting worker...", worker=self.name)
+
         self._running = True
         self._state = WorkerState.RUNNING
         self._start_time = time.time()
 
-        try:
-            while self._running:
-                if len(self._current_tasks) >= self._config.concurrency:
-                    await asyncio.sleep(0.5)
-                    continue
+        if not await self._broker.is_connected():
+            await self._broker.connect()
 
-                message: Message | None = None
+        while self._running:
+            if len(self._current_tasks) >= self._config.concurrency:
+                await asyncio.sleep(0.5)
+                continue
 
-                try:
-                    message = await self._broker.consume(
-                        queue=self._queue,
-                        timeout=self._config.queue_timeout,
-                    )
+            message: Message | None = None
 
-                except Exception as e:  # noqa: BLE001
-                    # Log error and continue
-                    logger.error(
-                        "Error consuming message from queue",
-                        error=e,
-                    )
+            try:
+                message = await self._broker.consume(
+                    queue=self._queue,
+                    timeout=self._config.queue_timeout,
+                )
 
-                    # TODO: Cannot find oriented queue
+            except Exception as e:  # noqa: BLE001
+                # Log error and continue
+                logger.error(
+                    "Error consuming message from queue",
+                    error=e,
+                )
 
-                    await asyncio.sleep(1)
-                    continue
+                await asyncio.sleep(1)
+                continue
 
-                if message is None:
-                    await asyncio.sleep(0.5)
-                    continue
+            if message is None:
+                await asyncio.sleep(0.5)
+                continue
 
-                try:
-                    task = asyncio.create_task(
-                        self._execute_task(message),
-                    )
-                    self._current_tasks.add(task)
-                    task.add_done_callback(self._current_tasks.discard)
+            try:
+                task = asyncio.create_task(
+                    self._execute_task(message),
+                )
+                self._current_tasks.add(task)
+                task.add_done_callback(self._current_tasks.discard)
 
-                except Exception:  # noqa: BLE001, S112
-                    continue
-
-        except asyncio.CancelledError:
-            logger.info("Worker stopped")
-
-        finally:
-            await self.stop()
+            except Exception:  # noqa: BLE001, S112
+                continue
 
     async def stop(self) -> None:
+        logger.info("Worker stopping...", worker=self.name)
+
         self._running = False
         self._state = WorkerState.STOPPING
 
@@ -153,7 +162,11 @@ class Worker:
                 timeout=self._config.task_timeout,
             )
 
-            logger.debug("Task executed successfully", task_id=str(message.id), result=result)
+            logger.debug(
+                "Task executed successfully",
+                worker=self.name,
+                task_id=str(message.id),
+            )
 
             json.encode(result)  # Check if serializable
 
