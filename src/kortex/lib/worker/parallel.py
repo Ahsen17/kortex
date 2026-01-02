@@ -70,6 +70,8 @@ class Parallel:
             self._processes.append(process)
             self._stop_events.append(stop_event)
 
+        # TODO: cannot stop normally
+
     def stop(self, graceful: bool = True) -> None:
         logger.info("Stopping parallel...")
 
