@@ -7,41 +7,25 @@ from uuid import UUID
 import structlog
 from croniter import croniter
 
-from ..broker import AsyncBrokerABC, Message
+from .broker import AsyncBrokerABC, Message
 from .config import SchedulerConfig
 from .exception import SchedulerError
-
-__all__ = ("Scheduler",)
 
 logger = structlog.stdlib.get_logger(__name__)
 
 
 class Scheduler:
-    """Task scheduler for delayed and cron-based execution.
-
-    Supports three scheduling modes:
-    - immediate: Task is queued immediately
-    - delay: Task is queued after a delay
-    - cron: Task is queued based on cron expression
-    """
-
     def __init__(
         self,
-        broker: AsyncBrokerABC[Message],
+        broker: AsyncBrokerABC,
         config: SchedulerConfig | None = None,
     ) -> None:
-        """Initialize scheduler.
+        self._broker = broker
+        self._config = config or SchedulerConfig()
 
-        Args:
-            broker: AsyncBroker instance for queue operations
-            config: Scheduler configuration
-        """
-
-        self.broker = broker
-        self.config = config or SchedulerConfig()
         self._running = False
-        self._scheduled_tasks: dict[str, asyncio.Task] = {}
-        self._cron_tasks: dict[str, asyncio.Task] = {}
+
+        self._cron_tasks: dict[UUID, asyncio.Task] = {}
         self._delay_queue: asyncio.PriorityQueue[tuple[float, Message]] = asyncio.PriorityQueue()
 
     @overload
@@ -76,22 +60,10 @@ class Scheduler:
         delay_seconds: int = 0,
         cron: str | None = None,
     ) -> UUID:
-        """Schedule a task for execution.
-
-        Args:
-            message: Task message
-            schedule: Schedule mode (immediate/delay/cron)
-            delay_seconds: Delay in seconds (for delay mode)
-            cron: Cron expression (for cron mode)
-
-        Returns:
-            Task ID
-
-        Raises:
-            SchedulerError: If scheduling fails
-        """
-
         try:
+            if not self._running:
+                raise SchedulerError("Scheduler is not running")
+
             match schedule:
                 case "immediate":
                     await self._submit_to_queue(message)
@@ -113,7 +85,7 @@ class Scheduler:
                     cron_task = asyncio.create_task(
                         self._process_cron_schedule(message, cron),
                     )
-                    self._cron_tasks[message.id.hex] = cron_task
+                    self._cron_tasks[message.id] = cron_task
 
                 case never:
                     assert_never(never)
@@ -124,13 +96,9 @@ class Scheduler:
             raise SchedulerError(f"Failed to schedule task: {e}") from e
 
     async def _submit_to_queue(self, message: Message) -> None:
-        """Submit a task message to the queue."""
-
-        await self.broker.produce(message)
+        await self._broker.produce(message)
 
     async def _process_delay_queue(self) -> None:
-        """Process the delay queue."""
-
         while self._running and not self._delay_queue.empty():
             try:
                 # Get next task with timeout
@@ -163,13 +131,6 @@ class Scheduler:
                 continue
 
     async def _process_cron_schedule(self, message: Message, cron: str) -> None:
-        """Process cron-based scheduling.
-
-        Args:
-            message: Task message
-            cron: Cron expression
-        """
-
         iterator = croniter(cron, datetime.now(UTC))
 
         task_id = message.id
@@ -205,7 +166,6 @@ class Scheduler:
                 await asyncio.sleep(60)
 
     async def start(self) -> None:
-        """Start the scheduler."""
         if self._running:
             return
 
@@ -231,37 +191,9 @@ class Scheduler:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._delay_processor
 
-        self._scheduled_tasks.clear()
         self._cron_tasks.clear()
 
-    async def cancel_task(self, task_id: UUID) -> bool:
-        """Cancel a scheduled task.
+    async def cancel_task(self, task_id: UUID) -> None:
+        """Cancel a scheduled task by its ID."""
 
-        Args:
-            task_id: Task identifier
-
-        Returns:
-            True if task was cancelled, False otherwise
-        """
-        # Cancel cron task
-        if task_id in self._cron_tasks:
-            task = self._cron_tasks.pop(task_id.hex)
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-            return True
-
-        # Remove from delay queue (rebuild queue without task)
-        if not self._delay_queue.empty():
-            new_queue: asyncio.PriorityQueue[tuple[float, Message]] = asyncio.PriorityQueue()
-            while not self._delay_queue.empty():
-                execute_at, message = await self._delay_queue.get()
-
-                if message.id != task_id:
-                    await new_queue.put((execute_at, message))
-
-            self._delay_queue = new_queue
-
-            return True
-
-        return False
+        # TODO: cancle orient task by id

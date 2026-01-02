@@ -18,26 +18,34 @@ __all__ = (
 class WorkerConfig:
     """Worker configuration."""
 
-    base_workers: int = 2
-    """Minimum number of workers per queue"""
-
-    max_workers: int = 10
-    """Maximum number of workers per queue"""
-
-    auto_scale: bool = True
-    """Enable automatic scaling based on queue load"""
-
     queue_timeout: int = 5
     """Timeout for consuming from queue (seconds)"""
 
     task_timeout: int = 300
     """Maximum time for task execution (seconds)"""
 
-    concurrency: int = 1
+    concurrency: int = 3
     """Number of concurrent tasks per worker"""
 
     heartbeat_interval: int = 30
     """Interval for worker heartbeat (seconds)"""
+
+
+@dataclass
+class PoolConfig:
+    """Pool configuration."""
+
+    base_workers: int = 2
+    """Minimum number of workers per queue"""
+
+    max_workers: int = 10
+    """Maximum number of workers per queue"""
+
+    queues: list[str] = field(default_factory=lambda: ["default"])
+    """List of queues to process"""
+
+    auto_scale: bool = True
+    """Enable automatic scaling based on queue load"""
 
 
 @dataclass
@@ -64,7 +72,7 @@ class SchedulerConfig:
     max_scheduled_tasks: int = 1000
     """Maximum number of scheduled tasks in memory"""
 
-    cron_check_interval: int = 60
+    cron_check_interval: int = 30
     """Interval to check cron schedules (seconds)"""
 
     delay_check_interval: int = 10

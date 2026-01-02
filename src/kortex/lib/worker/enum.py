@@ -6,6 +6,7 @@ __all__ = (
     "ProcessState",
     "SchedulerState",
     "TaskStatus",
+    "WorkerPoolState",
     "WorkerState",
 )
 
@@ -58,6 +59,22 @@ class WorkerState(StrEnum):
 
     UNHEALTHY = auto()
     """Worker health check failed"""
+
+
+class WorkerPoolState(StrEnum):
+    """Worker pool operational state."""
+
+    IDLE = auto()
+    """Pool waiting for workers"""
+
+    RUNNING = auto()
+    """Pool with active workers"""
+
+    STOPPING = auto()
+    """Pool shutting down"""
+
+    STOPPED = auto()
+    """Pool stopped"""
 
 
 class SchedulerState(StrEnum):

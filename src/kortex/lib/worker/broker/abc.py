@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 __all__ = ("AsyncBrokerABC",)
 
 
-class AsyncBrokerABC[T: Message](ABC):
+class AsyncBrokerABC(ABC):
     """Abstract base class for message brokers.
 
     This class defines the interface for message brokers that support
@@ -30,7 +30,7 @@ class AsyncBrokerABC[T: Message](ABC):
     """
 
     @abstractmethod
-    async def produce(self, message: T) -> None:
+    async def produce(self, message: Message) -> None:
         """Produce a message to a specific queue.
 
         This method adds a message to the specified queue with the given key.
