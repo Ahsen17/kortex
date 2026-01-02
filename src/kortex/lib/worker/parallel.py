@@ -1,88 +1,118 @@
-import asyncio
 import contextlib
 import multiprocessing as mp
-import signal
-import sys
-from multiprocessing.synchronize import Event
-from typing import Any
-from uuid import uuid4
+import os
+from typing import TYPE_CHECKING, Literal
+
+import structlog
 
 from .abc import TaskStoreABC
 from .broker import AsyncBrokerABC
 from .config import WorkerConfig
-from .worker import Worker
+from .process import WorkerProcess
+
+if TYPE_CHECKING:
+    from multiprocessing.synchronize import Event
+
+__all__ = ("Parallel",)
+
+logger = structlog.stdlib.get_logger(__name__)
 
 
-class WorkerProcess(mp.Process):
+class Parallel:
     def __init__(
         self,
         broker: AsyncBrokerABC,
-        stop_event: Event,
-        queue: str = "default",
+        num_processes: int = 1,
+        queues: list[str] | None = None,
+        boot_method: Literal["spawn", "fork", "forkserver"] = "spawn",
         store: TaskStoreABC | None = None,
         worker_config: WorkerConfig | None = None,
     ) -> None:
-        super().__init__()
+        self._num_processes = num_processes
 
-        self._process_id = self.gen_process_id()
         self._broker = broker
-        self._queue = queue
+        self._queues = queues or ["default"]
 
-        self._stop_event = stop_event
         self._store = store
         self._worker_config = worker_config or WorkerConfig()
 
-    @classmethod
-    def gen_process_id(cls) -> str:
-        return f"worker-{uuid4().hex[-4:]}"
+        self._ctx = mp.get_context(boot_method)
+        self._processes: list[WorkerProcess] = []
+        self._stop_events: list[Event] = []
 
-    def run(self) -> None:
-        try:
-            import setproctitle  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+    def start(self) -> None:
+        logger.info("Starting parallel...")
 
-            setproctitle.setproctitle(self._process_id)
-        except ImportError:
-            pass
+        if self._processes:
+            raise RuntimeError("Processes already running")
 
-        # Register signal handlers
-        signal.signal(signal.SIGTERM, self._handle_signal)
-        signal.signal(signal.SIGINT, self._handle_signal)
+        if self._num_processes <= 0:
+            raise ValueError("Number of processes must be greater than 0")
 
-        # Run async main
-        try:
-            asyncio.run(self._worker_main())
+        for i in range(self._num_processes):
+            # Distribute queues round-robin
+            queue = self._queues[i % len(self._queues)]
 
-        except KeyboardInterrupt:
-            pass
+            # Create stop event
+            stop_event = self._ctx.Event()
 
-        except Exception:  # noqa: BLE001
-            sys.exit(1)
+            # Create process
+            process = WorkerProcess(
+                broker=self._broker,
+                stop_event=stop_event,
+                queue=queue,
+                store=self._store,
+                worker_config=self._worker_config,
+            )
 
-    def _handle_signal(self, signum: int, frame: Any) -> None:
-        """Handle termination signals."""
+            # Start process
+            process.start()
+            self._processes.append(process)
+            self._stop_events.append(stop_event)
 
-        self._stop_event.set()
+    def stop(self, graceful: bool = True) -> None:
+        logger.info("Stopping parallel...")
 
-    async def _worker_main(self) -> None:
-        if not await self._broker.is_connected():
-            await self._broker.connect()
+        if not self._processes:
+            return
 
-        worker = Worker(
-            self._broker,
-            self._queue,
-            self._worker_config,
-            self._store,
-        )
+        # Signal all processes to stop
+        for event in self._stop_events:
+            event.set()
 
-        try:
-            await worker.start()
+        if graceful:
+            # Wait for graceful shutdown
+            for _, process in enumerate(self._processes):
+                try:
+                    process.join()
 
-            while not self._stop_event.is_set():
-                await asyncio.sleep(1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=5)
 
-        except asyncio.CancelledError:
-            pass
+                        if process.is_alive():
+                            process.kill()
+                            process.join()
 
-        finally:
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(fut=worker.stop(), timeout=10.0)
+                except Exception:  # noqa: BLE001, S110
+                    pass
+        else:
+            # Force stop
+            for process in self._processes:
+                process.terminate()
+                process.join()
+
+        self._processes.clear()
+        self._stop_events.clear()
+
+    def is_running(self) -> bool:
+        return any(p.is_alive() for p in self._processes)
+
+    def get_pids(self) -> list[int]:
+        return [p.pid for p in self._processes if p.pid is not None]
+
+    def send_signal(self, signum: int) -> None:
+        for process in self._processes:
+            if process.pid:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(process.pid, signum)

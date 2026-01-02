@@ -82,7 +82,7 @@ class Worker:
         self._start_time = time.time()
 
         if not await self._broker.is_connected():
-            await self._broker.connect()
+            raise Exception("Broker is not connected")
 
         while self._running:
             if len(self._current_tasks) >= self._config.concurrency:
