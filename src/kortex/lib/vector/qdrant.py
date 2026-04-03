@@ -10,14 +10,14 @@ from qdrant_client.http import models as qdrant_models
 from ..embedder import OpenAIEmbedder as BaseEmbedder
 
 __all__ = (
-    "VectorCollection",
-    "VectorStoreMixin",
+    "QdrantVectorCollection",
+    "QdrantVectorStoreMixin",
 )
 
 QDRANT_OP_TIMEOUT: Final[int] = 30
 
 
-class VectorCollection(BaseModel):
+class QdrantVectorCollection(BaseModel):
     """Configuration for a Qdrant vector collection."""
 
     collection_name: str
@@ -29,7 +29,7 @@ class VectorCollection(BaseModel):
 
 
 @dataclass
-class VectorStoreMixin(ABC):
+class QdrantVectorStoreMixin(ABC):
     """Mixin for vector store functionality using Qdrant."""
 
     id: UUID
@@ -55,7 +55,7 @@ class VectorStoreMixin(ABC):
 
     @classmethod
     @abstractmethod
-    def collection(cls) -> VectorCollection:
+    def collection(cls) -> QdrantVectorCollection:
         """Get the vector collection associated with the instance."""
 
         raise NotImplementedError()
